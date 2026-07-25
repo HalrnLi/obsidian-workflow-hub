@@ -12,7 +12,11 @@ export interface OverdueStats {
   onTrack: number; // 正常
 }
 
-export function calculateOverdueStats(projects: Project[], stages: ProgressStage[], warningDays: number = 3): OverdueStats {
+export function calculateOverdueStats(
+  projects: Project[],
+  stages: ProgressStage[],
+  warningDays: number = 3,
+): OverdueStats {
   const stats: OverdueStats = { overdue: 0, warning: 0, onTrack: 0 };
   const lastProgress = getLastProgress(stages);
 

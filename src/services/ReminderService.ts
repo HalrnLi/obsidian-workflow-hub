@@ -37,12 +37,15 @@ export class ReminderService {
     const timerId = window.setTimeout(() => {
       try {
         // 检查待办是否已完成
-        this.plugin.todoService.getById(todoId).then((todo) => {
-          if (todo && todo.status === 'done') return;
-          this._notify(content, link);
-        }).catch(() => {
-          this._notify(content, link);
-        });
+        this.plugin.todoService
+          .getById(todoId)
+          .then((todo) => {
+            if (todo && todo.status === 'done') return;
+            this._notify(content, link);
+          })
+          .catch(() => {
+            this._notify(content, link);
+          });
       } finally {
         this.reminders.delete(todoId);
         this.plugin.notifyViewsToRefresh();
@@ -116,12 +119,15 @@ export class ReminderService {
         if (reminder.fireAt <= now) {
           window.clearTimeout(reminder.timerId);
           this.reminders.delete(todoId);
-          this.plugin.todoService.getById(todoId).then((todo) => {
-            if (todo && todo.status === 'done') return;
-            this._notify(reminder.content, reminder.link);
-          }).catch(() => {
-            this._notify(reminder.content, reminder.link);
-          });
+          this.plugin.todoService
+            .getById(todoId)
+            .then((todo) => {
+              if (todo && todo.status === 'done') return;
+              this._notify(reminder.content, reminder.link);
+            })
+            .catch(() => {
+              this._notify(reminder.content, reminder.link);
+            });
         }
       }
       this.plugin.notifyViewsToRefresh();

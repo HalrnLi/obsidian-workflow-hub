@@ -184,8 +184,9 @@ version: 1
     const writtenContent = (mocks.vault.modify as any).mock.calls[0][1];
     const expectedDate = `${new Date().getFullYear()}-01-02`;
     // YAML 序列化可能将日期字符串加上引号: '2026-01-02' 或 2026-01-02
-    const hasDate = writtenContent.includes(`b1IntegrationTestTime: '${expectedDate}'`) ||
-                    writtenContent.includes(`b1IntegrationTestTime: ${expectedDate}`);
+    const hasDate =
+      writtenContent.includes(`b1IntegrationTestTime: '${expectedDate}'`) ||
+      writtenContent.includes(`b1IntegrationTestTime: ${expectedDate}`);
     expect(hasDate).toBe(true);
   });
 

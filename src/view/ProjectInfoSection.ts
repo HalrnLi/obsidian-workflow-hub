@@ -16,7 +16,10 @@ export class ProjectInfoSection {
     this.containerEl.empty();
     const header = this.containerEl.createDiv({ cls: 'avm-section-header' });
     header.createEl('h4', { text: '项目信息' });
-    new ButtonComponent(header).setIcon('plus').setButtonText('添加条目').onClick(() => this.showForm(null));
+    new ButtonComponent(header)
+      .setIcon('plus')
+      .setButtonText('添加条目')
+      .onClick(() => this.showForm(null));
 
     const list = this.containerEl.createDiv({ cls: 'avm-project-info-list' });
     const items = this.project.projectInfo ?? [];

@@ -1,5 +1,13 @@
 import { Modal, App as ObsidianApp, Setting } from 'obsidian';
-import { ProjectLink, ProjectProgress, ProgressStage, getProgressOrder, getFirstProgress, App, Version } from '../../types';
+import {
+  ProjectLink,
+  ProjectProgress,
+  ProgressStage,
+  getProgressOrder,
+  getFirstProgress,
+  App,
+  Version,
+} from '../../types';
 import { createActionButtons } from '../ModalUtils';
 import { AppVersionLinksEditor } from '../components/AppVersionLinksEditor';
 
@@ -96,7 +104,9 @@ export class CreateProjectModal extends Modal {
       dropdown.onChange((value) => (data.progress = value as ProjectProgress));
     });
 
-    new Setting(contentEl).setName('特性').addTextArea((text) => text.setPlaceholder('可选').onChange((value) => (data.features = value)));
+    new Setting(contentEl)
+      .setName('特性')
+      .addTextArea((text) => text.setPlaceholder('可选').onChange((value) => (data.features = value)));
 
     new Setting(contentEl)
       .setName('配置组件/规格')
@@ -118,7 +128,6 @@ export class CreateProjectModal extends Modal {
       onCancel: () => this.close(),
     });
   }
-
 
   onClose() {
     this.contentEl.empty();

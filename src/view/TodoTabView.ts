@@ -1,4 +1,4 @@
-import { ButtonComponent, Notice, Menu } from 'obsidian';
+import { ButtonComponent, Menu, Modal, Notice } from 'obsidian';
 import AppVersionManagerPlugin from '../main';
 import { Todo, TodoStatus, Category } from '../types';
 import { sortTodos } from '../utils/todoSorting';
@@ -8,6 +8,7 @@ import { CategoryModal } from './modals/CategoryModal';
 import { ConfirmModal } from './ConfirmModal';
 import { openExternalLink } from '../utils/linkUtils';
 import { ImportExportService } from '../services/ImportExportService';
+import { ResponsiblePersonModal } from './modals/ResponsiblePersonModal';
 
 /** 临时待办（纯内存，关闭即清空） */
 interface TempTask {
@@ -16,6 +17,7 @@ interface TempTask {
   link: string;
   completed: boolean;
   createdAt: number;
+  responsiblePerson: string;
 }
 
 /** 待办 Tab 主视图：左侧长期待办 + 右侧临时待办 */
@@ -25,6 +27,7 @@ export class TodoTabView {
   private containerEl: HTMLElement;
 
   private categories: Category[] = [];
+  private selectedPersons: string[] = [];
   private selectedCategoryId: string | null | 'all' = 'all';
   private statusFilter: TodoStatus | 'all' = 'all';
   private projectFilter: 'all' | 'bound' | 'unbound' = 'all';
@@ -47,11 +50,15 @@ export class TodoTabView {
       console.error('加载分类失败', e);
     }
 
+    // 同步 settings.responsiblePersons 到本地（首次或设置变更时）
+    this.selectedPersons = this.plugin.settings.responsiblePersons ?? [];
+
     this.containerEl.empty();
     const wrapper = this.containerEl.createDiv({ cls: 'avm-todo-wrapper' });
 
     // 左侧：长期待办主体
     const mainEl = wrapper.createDiv({ cls: 'avm-todo-main' });
+    this.renderPersonSelector(mainEl);
     this.renderCategoryTabs(mainEl);
     this.renderFilterBar(mainEl);
     await this.renderList(mainEl);
@@ -77,11 +84,20 @@ export class TodoTabView {
     // 标题行
     const header = panel.createDiv({ cls: 'avm-temp-header' });
     header.createSpan({ cls: 'avm-temp-title', text: '📝 临时待办' });
-    const countBadge = header.createSpan({ cls: 'avm-temp-count', text: this.tempTasks.length > 0 ? String(this.tempTasks.length) : '' });
+    const visibleCount = this.tempTasks.filter(
+      (t) => !this.plugin.todoService.getCurrentResponsiblePerson() || t.responsiblePerson === this.plugin.todoService.getCurrentResponsiblePerson(),
+    ).length;
+    const countBadge = header.createSpan({
+      cls: 'avm-temp-count',
+      text: visibleCount > 0 ? String(visibleCount) : '',
+    });
     const clearBtn = header.createEl('button', { text: '清除已完成', cls: 'avm-temp-clear-btn' });
     clearBtn.style.display = this.tempTasks.some((t) => t.completed) ? '' : 'none';
     clearBtn.addEventListener('click', () => {
-      this.tempTasks = this.tempTasks.filter((t) => !t.completed);
+      const person = this.plugin.todoService.getCurrentResponsiblePerson();
+      this.tempTasks = this.tempTasks.filter(
+        (t) => !t.completed || (person && t.responsiblePerson !== person),
+      );
       this.refreshTempPanel();
     });
 
@@ -104,11 +120,19 @@ export class TodoTabView {
     });
 
     const linkRow = panel.createDiv({ cls: 'avm-temp-input-row' });
-    const linkInput = linkRow.createEl('input', { type: 'text', placeholder: '链接（可选）...', cls: 'avm-temp-input' });
+    const linkInput = linkRow.createEl('input', {
+      type: 'text',
+      placeholder: '链接（可选）...',
+      cls: 'avm-temp-input',
+    });
 
-    // 任务列表
+    // 任务列表（按当前负责人筛选）
     const list = panel.createDiv({ cls: 'avm-temp-list' });
-    this.tempTasks.forEach((task) => this.renderTempTask(list, task));
+    const currentPerson = this.plugin.todoService.getCurrentResponsiblePerson();
+    const visibleTasks = this.tempTasks.filter(
+      (t) => !currentPerson || t.responsiblePerson === currentPerson,
+    );
+    visibleTasks.forEach((task) => this.renderTempTask(list, task));
   }
 
   /** 刷新临时待办面板（不重建整个视图） */
@@ -129,6 +153,7 @@ export class TodoTabView {
       link: link || '',
       completed: false,
       createdAt: Date.now(),
+      responsiblePerson: this.plugin.todoService.getCurrentResponsiblePerson(),
     });
     this.refreshTempPanel();
   }
@@ -210,50 +235,62 @@ export class TodoTabView {
       { label: '3 小时后', ms: 3 * 60 * 60 * 1000 },
     ];
     presets.forEach((preset) => {
-      menu.addItem((it) => it
-        .setTitle(preset.label)
-        .onClick(() => {
+      menu.addItem((it) =>
+        it.setTitle(preset.label).onClick(() => {
           reminderService.setReminder(task.id, task.content, preset.ms, task.link);
           new Notice(`已设置 ${preset.label} 提醒`, 3000);
           this.refreshTempPanel();
-        }));
+        }),
+      );
     });
 
-    menu.addItem((it) => it
-      .setTitle('自定义时间...')
-      .onClick(() => this.showCustomReminderModal(task)));
+    menu.addItem((it) => it.setTitle('自定义时间...').onClick(() => this.showCustomReminderModal(task)));
 
     if (reminderService.hasReminder(task.id)) {
       menu.addSeparator();
       const remaining = reminderService.getRemainingTime(task.id);
       const mins = Math.ceil(remaining / 60000);
-      menu.addItem((it) => it
-        .setTitle(`⏰ 取消提醒 (剩余 ${mins} 分钟)`)
-        .onClick(() => {
+      menu.addItem((it) =>
+        it.setTitle(`⏰ 取消提醒 (剩余 ${mins} 分钟)`).onClick(() => {
           reminderService.cancelReminder(task.id);
           new Notice('已取消提醒', 3000);
           this.refreshTempPanel();
-        }));
+        }),
+      );
     }
 
     menu.addSeparator();
-    menu.addItem((it) => it.setTitle('编辑').setIcon('pencil').onClick(() => this.editTempTask(task)));
+    menu.addItem((it) =>
+      it
+        .setTitle('编辑')
+        .setIcon('pencil')
+        .onClick(() => this.editTempTask(task)),
+    );
     if (task.link) {
-      menu.addItem((it) => it.setTitle('打开链接').setIcon('external-link').onClick(() => openExternalLink(task.link)));
+      menu.addItem((it) =>
+        it
+          .setTitle('打开链接')
+          .setIcon('external-link')
+          .onClick(() => openExternalLink(task.link)),
+      );
     }
     menu.addSeparator();
-    menu.addItem((it) => it.setTitle('删除').setIcon('trash').onClick(() => {
-      this.plugin.reminderService.cancelReminder(task.id);
-      this.tempTasks = this.tempTasks.filter((t) => t.id !== task.id);
-      this.refreshTempPanel();
-    }));
+    menu.addItem((it) =>
+      it
+        .setTitle('删除')
+        .setIcon('trash')
+        .onClick(() => {
+          this.plugin.reminderService.cancelReminder(task.id);
+          this.tempTasks = this.tempTasks.filter((t) => t.id !== task.id);
+          this.refreshTempPanel();
+        }),
+    );
 
     menu.showAtMouseEvent(event);
   }
 
   /** 自定义提醒时间弹窗 */
   private showCustomReminderModal(task: TempTask): void {
-    const { Modal } = require('obsidian');
     const modal = new Modal(this.plugin.app);
     modal.titleEl.setText('设置提醒时间');
 
@@ -302,6 +339,42 @@ export class TodoTabView {
   }
 
   // ---------- 左侧长期待办 ----------
+  private renderPersonSelector(container: HTMLElement): void {
+    const selectorBar = container.createDiv({ cls: 'avm-filter-bar avm-person-selector' });
+
+    // "全部" 按钮
+    const allBtn = selectorBar.createEl('button', {
+      cls: 'avm-person-btn' + (!this.plugin.todoService.getCurrentResponsiblePerson() ? ' avm-person-btn-active' : ''),
+      text: '全部',
+    });
+    allBtn.addEventListener('click', async () => {
+      this.plugin.todoService.setCurrentResponsiblePerson('');
+      await this.plugin.todoService.invalidateAll();
+      await this.render();
+    });
+
+    // 每个负责人一个按钮
+    this.selectedPersons.forEach((person) => {
+      const btn = selectorBar.createEl('button', {
+        cls: 'avm-person-btn' + (this.plugin.todoService.getCurrentResponsiblePerson() === person ? ' avm-person-btn-active' : ''),
+        text: person,
+      });
+      btn.addEventListener('click', async () => {
+        this.plugin.todoService.setCurrentResponsiblePerson(person);
+        await this.plugin.todoService.invalidateAll();
+        await this.render();
+      });
+    });
+
+    // 设置按钮（管理负责人列表）
+    new ButtonComponent(selectorBar)
+      .setIcon('users')
+      .setTooltip('管理负责人')
+      .onClick(() => {
+        new ResponsiblePersonModal(this.plugin.app, this.plugin, () => this.render()).open();
+      });
+  }
+
   private renderCategoryTabs(container: HTMLElement): void {
     const tabBar = container.createDiv({ cls: 'avm-tab-bar avm-category-tabs' });
 
@@ -325,9 +398,13 @@ export class TodoTabView {
       });
     });
 
-    new ButtonComponent(tabBar).setIcon('settings').setButtonText('管理').setTooltip('管理分类').onClick(() => {
-      new CategoryModal(this.plugin.app, this.plugin, () => this.render()).open();
-    });
+    new ButtonComponent(tabBar)
+      .setIcon('settings')
+      .setButtonText('管理')
+      .setTooltip('管理分类')
+      .onClick(() => {
+        new CategoryModal(this.plugin.app, this.plugin, () => this.render()).open();
+      });
   }
 
   private renderFilterBar(container: HTMLElement): void {
@@ -383,8 +460,15 @@ export class TodoTabView {
       this.searchDebounce = window.setTimeout(() => this.renderList(container), 200);
     });
 
-    new ButtonComponent(bar).setIcon('plus').setButtonText('新建待办').setCta().onClick(() => this.showCreate());
-    new ButtonComponent(bar).setIcon('download').setButtonText('导出CSV').onClick(() => this.exportCSV());
+    new ButtonComponent(bar)
+      .setIcon('plus')
+      .setButtonText('新建待办')
+      .setCta()
+      .onClick(() => this.showCreate());
+    new ButtonComponent(bar)
+      .setIcon('download')
+      .setButtonText('导出CSV')
+      .onClick(() => this.exportCSV());
   }
 
   private async renderList(container: HTMLElement): Promise<void> {
@@ -429,7 +513,9 @@ export class TodoTabView {
   }
 
   private renderTodoItem(listEl: HTMLElement, todo: Todo, projectName: string): void {
-    const item = listEl.createDiv({ cls: 'avm-todo-item' + (todo.status === 'done' ? ' avm-todo-done' : '') + (todo.pinned ? ' avm-todo-pinned' : '') });
+    const item = listEl.createDiv({
+      cls: 'avm-todo-item' + (todo.status === 'done' ? ' avm-todo-done' : '') + (todo.pinned ? ' avm-todo-pinned' : ''),
+    });
 
     const icon = item.createSpan({ cls: 'avm-todo-status-icon' });
     icon.setText(todo.status === 'done' ? '◼️' : '◻️');
@@ -487,31 +573,48 @@ export class TodoTabView {
     item.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       const menu = new Menu();
-      menu.addItem((it) => it.setTitle(todo.pinned ? '取消置顶' : '置顶').onClick(async () => {
-        await this.plugin.todoService.update(todo.id, { pinned: !todo.pinned });
-        this.render();
-        this.onRefresh?.();
-      }));
+      menu.addItem((it) =>
+        it.setTitle(todo.pinned ? '取消置顶' : '置顶').onClick(async () => {
+          await this.plugin.todoService.update(todo.id, { pinned: !todo.pinned });
+          this.render();
+          this.onRefresh?.();
+        }),
+      );
       if (todo.dueDate) {
         const hasReminder = this.plugin.reminderService.hasReminder(todo.id);
         const dueDate = new Date(todo.dueDate);
         const now = new Date();
         if (dueDate > now) {
           const delayMs = dueDate.getTime() - now.getTime();
-          menu.addItem((it) => it.setTitle(hasReminder ? '取消提醒' : '到期提醒').setIcon('bell').onClick(async () => {
-            if (hasReminder) {
-              this.plugin.reminderService.cancelReminder(todo.id);
-            } else {
-              this.plugin.reminderService.setReminder(todo.id, todo.content, delayMs, todo.link);
-            }
-            this.render();
-            this.onRefresh?.();
-          }));
+          menu.addItem((it) =>
+            it
+              .setTitle(hasReminder ? '取消提醒' : '到期提醒')
+              .setIcon('bell')
+              .onClick(async () => {
+                if (hasReminder) {
+                  this.plugin.reminderService.cancelReminder(todo.id);
+                } else {
+                  this.plugin.reminderService.setReminder(todo.id, todo.content, delayMs, todo.link);
+                }
+                this.render();
+                this.onRefresh?.();
+              }),
+          );
         }
       }
       menu.addSeparator();
-      menu.addItem((it) => it.setTitle('编辑').setIcon('pencil').onClick(() => this.showEdit(todo)));
-      menu.addItem((it) => it.setTitle('删除').setIcon('trash').onClick(() => this.confirmDelete(todo)));
+      menu.addItem((it) =>
+        it
+          .setTitle('编辑')
+          .setIcon('pencil')
+          .onClick(() => this.showEdit(todo)),
+      );
+      menu.addItem((it) =>
+        it
+          .setTitle('删除')
+          .setIcon('trash')
+          .onClick(() => this.confirmDelete(todo)),
+      );
       menu.showAtMouseEvent(e);
     });
   }
@@ -526,7 +629,8 @@ export class TodoTabView {
     };
     const todayStr = fmt(today);
     switch (this.datePreset) {
-      case 'today': return { from: todayStr, to: todayStr };
+      case 'today':
+        return { from: todayStr, to: todayStr };
       case 'week': {
         const dayOfWeek = today.getDay();
         const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
@@ -545,12 +649,16 @@ export class TodoTabView {
         return { from: fmt(monthAgo), to: todayStr };
       }
       case 'all':
-      default: return { from: undefined, to: undefined };
+      default:
+        return { from: undefined, to: undefined };
     }
   }
 
   private showCreate(): void {
-    const defaultCategory = this.selectedCategoryId === 'all' || this.selectedCategoryId === null ? this.plugin.settings.defaultCategoryId : this.selectedCategoryId;
+    const defaultCategory =
+      this.selectedCategoryId === 'all' || this.selectedCategoryId === null
+        ? this.plugin.settings.defaultCategoryId
+        : this.selectedCategoryId;
     new CreateTodoModal(
       this.plugin.app,
       this.plugin,

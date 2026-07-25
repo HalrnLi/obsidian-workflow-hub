@@ -78,12 +78,8 @@ export default class AppVersionManagerPlugin extends Plugin {
 
     this.app.workspace.onLayoutReady(() => {
       this.backupService.scheduleBackup();
-      this.categoryService
-        .initializeDefaults()
-        .catch((e) => console.error('[WorkflowHub] 初始化默认分类失败:', e));
-      this.todoService
-        .loadAllIndexes()
-        .catch((e) => console.error('[WorkflowHub] 加载待办索引失败:', e));
+      this.categoryService.initializeDefaults().catch((e) => console.error('[WorkflowHub] 初始化默认分类失败:', e));
+      this.todoService.loadAllIndexes().catch((e) => console.error('[WorkflowHub] 加载待办索引失败:', e));
       this.todoInheritanceService.start();
     });
   }
@@ -305,7 +301,9 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('预发布轮次')
-      .setDesc('设置哪个 B 轮为预发布轮次。到达该轮次后，项目卡片将显示预发布提示。触发条件：上一轮系统测试日期已到达/已过，直到项目状态置为已发布。')
+      .setDesc(
+        '设置哪个 B 轮为预发布轮次。到达该轮次后，项目卡片将显示预发布提示。触发条件：上一轮系统测试日期已到达/已过，直到项目状态置为已发布。',
+      )
       .addDropdown((dropdown) => {
         dropdown.addOption('B1', 'B1');
         dropdown.addOption('B2', 'B2');
@@ -610,7 +608,18 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
   }
 
   private generateRandomColor(): string {
-    const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#f97316', '#14b8a6', '#64748b'];
+    const colors = [
+      '#6366f1',
+      '#8b5cf6',
+      '#ec4899',
+      '#f59e0b',
+      '#3b82f6',
+      '#10b981',
+      '#ef4444',
+      '#f97316',
+      '#14b8a6',
+      '#64748b',
+    ];
     return colors[Math.floor(Math.random() * colors.length)];
   }
 }

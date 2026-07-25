@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { parseFrontmatter, createFrontmatter, parseProgressHistory, parseNumericField } from '../../src/utils/frontmatter';
+import {
+  parseFrontmatter,
+  createFrontmatter,
+  parseProgressHistory,
+  parseNumericField,
+} from '../../src/utils/frontmatter';
 
 describe('parseFrontmatter', () => {
   it('returns null for no frontmatter', () => {

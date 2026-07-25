@@ -20,7 +20,10 @@ export class ProjectTodoSection {
     this.containerEl.empty();
     const header = this.containerEl.createDiv({ cls: 'avm-section-header' });
     header.createEl('h4', { text: '项目待办' });
-    new ButtonComponent(header).setIcon('plus').setButtonText('添加待办').onClick(() => this.showCreate());
+    new ButtonComponent(header)
+      .setIcon('plus')
+      .setButtonText('添加待办')
+      .onClick(() => this.showCreate());
 
     const listEl = this.containerEl.createDiv({ cls: 'avm-todo-list' });
 
@@ -37,13 +40,18 @@ export class ProjectTodoSection {
     }
 
     const completed = todos.filter((t) => t.status === 'done').length;
-    const statsEl = this.containerEl.createDiv({ cls: 'avm-todo-stats', text: `已完成 ${completed} / 共 ${todos.length}` });
+    const statsEl = this.containerEl.createDiv({
+      cls: 'avm-todo-stats',
+      text: `已完成 ${completed} / 共 ${todos.length}`,
+    });
 
     todos.forEach((todo) => this.renderTodoItem(listEl, todo));
   }
 
   private renderTodoItem(listEl: HTMLElement, todo: Todo): void {
-    const item = listEl.createDiv({ cls: 'avm-todo-item' + (todo.status === 'done' ? ' avm-todo-done' : '') + (todo.pinned ? ' avm-todo-pinned' : '') });
+    const item = listEl.createDiv({
+      cls: 'avm-todo-item' + (todo.status === 'done' ? ' avm-todo-done' : '') + (todo.pinned ? ' avm-todo-pinned' : ''),
+    });
 
     // 状态切换图标（todo ↔ done）
     const icon = item.createSpan({ cls: 'avm-todo-status-icon' });
@@ -98,14 +106,26 @@ export class ProjectTodoSection {
     item.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       const menu = new Menu();
-      menu.addItem((it) => it.setTitle(todo.pinned ? '取消置顶' : '置顶').onClick(async () => {
-        await this.plugin.todoService.update(todo.id, { pinned: !todo.pinned });
-        await this.render();
-        this.onChange?.();
-      }));
+      menu.addItem((it) =>
+        it.setTitle(todo.pinned ? '取消置顶' : '置顶').onClick(async () => {
+          await this.plugin.todoService.update(todo.id, { pinned: !todo.pinned });
+          await this.render();
+          this.onChange?.();
+        }),
+      );
       menu.addSeparator();
-      menu.addItem((it) => it.setTitle('编辑').setIcon('pencil').onClick(() => this.showEdit(todo)));
-      menu.addItem((it) => it.setTitle('删除').setIcon('trash').onClick(() => this.confirmDelete(todo)));
+      menu.addItem((it) =>
+        it
+          .setTitle('编辑')
+          .setIcon('pencil')
+          .onClick(() => this.showEdit(todo)),
+      );
+      menu.addItem((it) =>
+        it
+          .setTitle('删除')
+          .setIcon('trash')
+          .onClick(() => this.confirmDelete(todo)),
+      );
       menu.showAtMouseEvent(e);
     });
   }

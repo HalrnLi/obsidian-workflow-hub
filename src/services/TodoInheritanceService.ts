@@ -36,11 +36,14 @@ export class TodoInheritanceService {
         console.error('[WorkflowHub] 智能继承失败:', e);
       });
       // 重新调度下一个 24h
-      this.scheduleTimer = window.setInterval(() => {
-        this.runInheritance().catch((e) => {
-          console.error('[WorkflowHub] 智能继承失败:', e);
-        });
-      }, 24 * 60 * 60 * 1000);
+      this.scheduleTimer = window.setInterval(
+        () => {
+          this.runInheritance().catch((e) => {
+            console.error('[WorkflowHub] 智能继承失败:', e);
+          });
+        },
+        24 * 60 * 60 * 1000,
+      );
     }, delay);
 
     // 启动时检查一次（如果今天还没执行过）

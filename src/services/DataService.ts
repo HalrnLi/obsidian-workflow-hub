@@ -1,7 +1,7 @@
 import { App as ObsidianApp, TFile, TFolder, normalizePath } from 'obsidian';
 import { existsSync, mkdirSync, readdirSync, statSync, readFileSync, unlinkSync } from 'fs';
 import { promises as fsPromises } from 'fs';
-import { join, isAbsolute, basename, extname } from 'path';
+import { join, basename, extname } from 'path';
 import AppVersionManagerPlugin from '../main';
 import {
   App,
@@ -9,52 +9,22 @@ import {
   Project,
   ProjectLink,
   ProjectProgress,
-  ProgressHistoryItem,
-  ProjectInfoItem,
   ConcurrencyConflictError,
   getProgressOrder,
   getFirstProgress,
 } from '../types';
 import { DataCache } from '../utils/DataCache';
-import { parseFrontmatter, createFrontmatter, parseNumericField, parseProgressHistory } from '../utils/frontmatter';
+import { parseFrontmatter, createFrontmatter } from '../utils/frontmatter';
 import { generateId, sanitizeFileName, compareVersions } from '../utils/idUtils';
 import { nowISO } from '../utils/dateUtils';
-
-// 解析 projectInfo 数组（frontmatter 已解析为对象数组，这里做字段规范化与空条目过滤）
-function parseProjectInfo(raw: unknown): ProjectInfoItem[] {
-  if (!Array.isArray(raw)) return [];
-  const result: ProjectInfoItem[] = [];
-  for (const item of raw) {
-    if (item && typeof item === 'object') {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const description = (item as any).description;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const link = (item as any).link;
-      if (typeof description === 'string' && description.trim()) {
-        result.push({ description, link: typeof link === 'string' ? link : '' });
-      }
-    }
-  }
-  return result;
-}
-
-// 解析 appVersionLinks 数组（frontmatter 已解析为对象数组，这里做字段规范化与空条目过滤）
-function parseProjectLinks(raw: unknown): ProjectLink[] {
-  if (!Array.isArray(raw)) return [];
-  const result: ProjectLink[] = [];
-  for (const item of raw) {
-    if (item && typeof item === 'object') {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const appId = (item as any).appId;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const versionId = (item as any).versionId;
-      if (typeof appId === 'string' && appId && typeof versionId === 'string' && versionId) {
-        result.push({ appId, versionId });
-      }
-    }
-  }
-  return result;
-}
+import { FilePathResolver } from '../utils/FilePathResolver';
+import {
+  parseProjectLinks,
+  parseProjectInfo,
+  extractAppFields,
+  extractVersionFields,
+  extractProjectFields,
+} from '../utils/typeGuards';
 
 // 自定义文件接口，用于支持绝对路径
 interface CustomFile {
@@ -72,11 +42,18 @@ export class DataService {
   app: ObsidianApp;
   plugin: AppVersionManagerPlugin;
   private cache: DataCache;
+  public readonly pathResolver: FilePathResolver;
 
   constructor(app: ObsidianApp, plugin: AppVersionManagerPlugin) {
     this.app = app;
     this.plugin = plugin;
     this.cache = new DataCache(30000);
+    this.pathResolver = new FilePathResolver(() => this.plugin.settings.dataPath || 'app-version-manager');
+  }
+
+  /** Delegates to FilePathResolver for backward compatibility (used by main.ts). */
+  public isAbsolutePath(): boolean {
+    return this.pathResolver.isAbsolutePath();
   }
 
   /** 原地更新 projects:all 缓存，避免全量重读 */
@@ -87,38 +64,8 @@ export class DataService {
     }
   }
 
-  private getDataPath(): string {
-    return this.plugin.settings.dataPath || 'app-version-manager';
-  }
-
-  public isAbsolutePath(): boolean {
-    const path = this.getDataPath();
-    return isAbsolute(path) || /^[A-Za-z]:/.test(path); // Windows drive letter or absolute path
-  }
-
-  /** 统一路径拼接：仅相对路径进行 normalize，绝对路径保持 path.join 原生结果 */
-  private joinPath(...parts: string[]): string {
-    const joined = join(...parts);
-    // 绝对路径（含 UNC 如 \\server\share）不经过 normalizePath，
-    // 因为 normalizePath 会将 \\ → / 并折叠 //，破坏 Windows UNC 前缀
-    return isAbsolute(joined) ? joined : normalizePath(joined);
-  }
-
-  private getAppsFolder(): string {
-    return this.joinPath(this.getDataPath(), 'apps');
-  }
-
-  private getVersionsFolder(): string {
-    return this.joinPath(this.getDataPath(), 'versions');
-  }
-
-  private getProjectsFolder(): string {
-    return this.joinPath(this.getDataPath(), 'projects');
-  }
-
-
   private async ensureFolder(path: string) {
-    if (this.isAbsolutePath()) {
+    if (this.pathResolver.isAbsolutePath()) {
       // 使用文件系统API
       if (!existsSync(path)) {
         mkdirSync(path, { recursive: true });
@@ -133,7 +80,7 @@ export class DataService {
   }
 
   private async writeFile(filePath: string, content: string) {
-    if (this.isAbsolutePath()) {
+    if (this.pathResolver.isAbsolutePath()) {
       await fsPromises.writeFile(filePath, content, 'utf-8');
     } else {
       await this.app.vault.create(filePath, content);
@@ -141,7 +88,7 @@ export class DataService {
   }
 
   private async modifyFile(file: TFile | CustomFile, content: string) {
-    if ('path' in file && this.isAbsolutePath()) {
+    if ('path' in file && this.pathResolver.isAbsolutePath()) {
       await fsPromises.writeFile(file.path, content, 'utf-8');
     } else if (file instanceof TFile) {
       await this.app.vault.modify(file, content);
@@ -149,16 +96,15 @@ export class DataService {
   }
 
   private async renameFile(file: TFile | CustomFile, newPath: string) {
-    if ('path' in file && this.isAbsolutePath()) {
-      const newFullPath = this.isAbsolutePath() ? newPath : normalizePath(newPath);
-      await fsPromises.rename(file.path, newFullPath);
+    if ('path' in file && this.pathResolver.isAbsolutePath()) {
+      await fsPromises.rename(file.path, newPath);
     } else if (file instanceof TFile) {
       await this.app.vault.rename(file, normalizePath(newPath));
     }
   }
 
   private async deleteFile(file: TFile | CustomFile) {
-    if ('path' in file && this.isAbsolutePath()) {
+    if ('path' in file && this.pathResolver.isAbsolutePath()) {
       await fsPromises.unlink(file.path);
     } else if (file instanceof TFile) {
       await this.app.vault.delete(file);
@@ -166,9 +112,9 @@ export class DataService {
   }
 
   async initializeDataFolders() {
-    await this.ensureFolder(this.getAppsFolder());
-    await this.ensureFolder(this.getVersionsFolder());
-    await this.ensureFolder(this.getProjectsFolder());
+    await this.ensureFolder(this.pathResolver.getAppsFolder());
+    await this.ensureFolder(this.pathResolver.getVersionsFolder());
+    await this.ensureFolder(this.pathResolver.getProjectsFolder());
   }
 
   async getAllApps(): Promise<App[]> {
@@ -178,7 +124,7 @@ export class DataService {
 
     await this.initializeDataFolders();
     const apps: App[] = [];
-    const files = await this.getMarkdownFiles(this.getAppsFolder());
+    const files = await this.getMarkdownFiles(this.pathResolver.getAppsFolder());
 
     for (const file of files) {
       const app = await this.parseAppFile(file);
@@ -192,35 +138,20 @@ export class DataService {
 
   private async parseAppFile(file: TFile | CustomFile): Promise<App | null> {
     try {
-      let content: string;
       const ctime = file.stat.ctime;
       const mtime = file.stat.mtime;
-
-      if ('readContent' in file) {
-        content = await file.readContent();
-      } else {
-        content = await this.app.vault.read(file);
-      }
-
+      const content = 'readContent' in file ? await file.readContent() : await this.app.vault.read(file);
       const frontmatter = parseFrontmatter(content);
       if (!frontmatter) return null;
-
-      return {
-        id: frontmatter.id ?? file.basename,
-        name: String(frontmatter.name ?? file.basename ?? ''),
-        createdAt: frontmatter.createdAt ?? ctime.toString(),
-        updatedAt: frontmatter.updatedAt ?? mtime.toString(),
-        version: parseNumericField(frontmatter.version, 1),
-      };
+      return extractAppFields(frontmatter, file.basename, ctime, mtime);
     } catch (error) {
       console.error('[AppVersionManager] Failed to parse app file:', file.path, error);
       return null;
     }
   }
 
-
   private async getMarkdownFiles(folderPath: string): Promise<(TFile | CustomFile)[]> {
-    if (this.isAbsolutePath()) {
+    if (this.pathResolver.isAbsolutePath()) {
       // 使用文件系统API
       try {
         if (!existsSync(folderPath)) return [];
@@ -305,7 +236,7 @@ export class DataService {
     });
 
     const fileName = sanitizeFileName(name);
-    const filePath = this.joinPath(this.getAppsFolder(), `${fileName}__${id}.md`);
+    const filePath = this.pathResolver.joinPath(this.pathResolver.getAppsFolder(), `${fileName}__${id}.md`);
 
     await this.writeFile(filePath, frontmatter);
     this.cache.invalidate('apps:all');
@@ -336,9 +267,9 @@ export class DataService {
 
     let file: TFile | CustomFile | null = null;
 
-    if (this.isAbsolutePath()) {
+    if (this.pathResolver.isAbsolutePath()) {
       // 对于绝对路径，我们需要手动查找文件
-      const files = await this.getMarkdownFiles(this.getAppsFolder());
+      const files = await this.getMarkdownFiles(this.pathResolver.getAppsFolder());
       for (const f of files) {
         const appData = await this.parseAppFile(f);
         if (appData?.id === id) {
@@ -348,11 +279,12 @@ export class DataService {
       }
     } else {
       // 对于相对路径，使用原来的逻辑
-      const oldPath = normalizePath(`${this.getAppsFolder()}/${oldFileName}__${id}.md`);
-      const legacyOldPath = normalizePath(`${this.getAppsFolder()}/${oldFileName}.md`);
-      const fallbackFile = this.app.vault.getAbstractFileByPath(oldPath) ?? this.app.vault.getAbstractFileByPath(legacyOldPath);
+      const oldPath = normalizePath(`${this.pathResolver.getAppsFolder()}/${oldFileName}__${id}.md`);
+      const legacyOldPath = normalizePath(`${this.pathResolver.getAppsFolder()}/${oldFileName}.md`);
+      const fallbackFile =
+        this.app.vault.getAbstractFileByPath(oldPath) ?? this.app.vault.getAbstractFileByPath(legacyOldPath);
       file =
-        (await this.findEntityFileById<App>(this.getAppsFolder(), this.parseAppFile, id)) ??
+        (await this.findEntityFileById<App>(this.pathResolver.getAppsFolder(), this.parseAppFile, id)) ??
         (fallbackFile instanceof TFile ? fallbackFile : null);
     }
 
@@ -368,7 +300,7 @@ export class DataService {
       await this.modifyFile(file, frontmatter);
 
       if (oldFileName !== newFileName) {
-        const newPath = this.joinPath(this.getAppsFolder(), `${newFileName}__${app.id}.md`);
+        const newPath = this.pathResolver.joinPath(this.pathResolver.getAppsFolder(), `${newFileName}__${app.id}.md`);
         await this.renameFile(file, newPath);
       }
     }
@@ -389,7 +321,11 @@ export class DataService {
 
     // 收集版本文件
     for (const version of versions) {
-      const file = await this.findEntityFileById<Version>(this.getVersionsFolder(), this.parseVersionFile, version.id);
+      const file = await this.findEntityFileById<Version>(
+        this.pathResolver.getVersionsFolder(),
+        this.parseVersionFile,
+        version.id,
+      );
       if (file) {
         versionFiles.push(file);
       }
@@ -399,8 +335,8 @@ export class DataService {
     // 收集 App 文件
     const fileName = sanitizeFileName(app.name);
     let appFile: TFile | CustomFile | null = null;
-    if (this.isAbsolutePath()) {
-      const files = await this.getMarkdownFiles(this.getAppsFolder());
+    if (this.pathResolver.isAbsolutePath()) {
+      const files = await this.getMarkdownFiles(this.pathResolver.getAppsFolder());
       for (const f of files) {
         const appData = await this.parseAppFile(f);
         if (appData?.id === id) {
@@ -409,11 +345,12 @@ export class DataService {
         }
       }
     } else {
-      const filePath = normalizePath(`${this.getAppsFolder()}/${fileName}__${id}.md`);
-      const legacyFilePath = normalizePath(`${this.getAppsFolder()}/${fileName}.md`);
-      const fallbackFile = this.app.vault.getAbstractFileByPath(filePath) ?? this.app.vault.getAbstractFileByPath(legacyFilePath);
+      const filePath = normalizePath(`${this.pathResolver.getAppsFolder()}/${fileName}__${id}.md`);
+      const legacyFilePath = normalizePath(`${this.pathResolver.getAppsFolder()}/${fileName}.md`);
+      const fallbackFile =
+        this.app.vault.getAbstractFileByPath(filePath) ?? this.app.vault.getAbstractFileByPath(legacyFilePath);
       appFile =
-        (await this.findEntityFileById<App>(this.getAppsFolder(), this.parseAppFile, id)) ??
+        (await this.findEntityFileById<App>(this.pathResolver.getAppsFolder(), this.parseAppFile, id)) ??
         (fallbackFile instanceof TFile ? fallbackFile : null);
     }
 
@@ -422,9 +359,7 @@ export class DataService {
     const allProjects = await this.getAllProjects();
     const versionIdSet = new Set(versionIds);
     for (const project of allProjects) {
-      const cleaned = project.appVersionLinks.filter(
-        (link) => link.appId !== id && !versionIdSet.has(link.versionId),
-      );
+      const cleaned = project.appVersionLinks.filter((link) => link.appId !== id && !versionIdSet.has(link.versionId));
       if (cleaned.length !== project.appVersionLinks.length) {
         await this.updateProject(project.id, { appVersionLinks: cleaned });
       }
@@ -451,7 +386,7 @@ export class DataService {
 
     await this.initializeDataFolders();
     const versions: Version[] = [];
-    const files = await this.getMarkdownFiles(this.getVersionsFolder());
+    const files = await this.getMarkdownFiles(this.pathResolver.getVersionsFolder());
 
     for (const file of files) {
       const version = await this.parseVersionFile(file);
@@ -467,32 +402,12 @@ export class DataService {
 
   private async parseVersionFile(file: TFile | CustomFile): Promise<Version | null> {
     try {
-      let content: string;
       const ctime = file.stat.ctime;
       const mtime = file.stat.mtime;
-
-      if ('readContent' in file) {
-        content = await file.readContent();
-      } else {
-        content = await this.app.vault.read(file);
-      }
-
+      const content = 'readContent' in file ? await file.readContent() : await this.app.vault.read(file);
       const frontmatter = parseFrontmatter(content);
-      if (!frontmatter || !frontmatter.appId) return null;
-
-      return {
-        id: frontmatter.id ?? file.basename,
-        appId: frontmatter.appId,
-        versionNumber: frontmatter.versionNumber ?? '',
-        bllVersion: frontmatter.bllVersion ?? '',
-        ippVersion: frontmatter.ippVersion ?? '',
-        webVersion: frontmatter.webVersion ?? '',
-        updateContent: frontmatter.updateContent ?? '',
-        isArchived: frontmatter.isArchived === true,
-        createdAt: frontmatter.createdAt ?? ctime.toString(),
-        updatedAt: frontmatter.updatedAt ?? mtime.toString(),
-        version: parseNumericField(frontmatter.version, 1),
-      };
+      if (!frontmatter) return null;
+      return extractVersionFields(frontmatter, ctime, mtime);
     } catch (error) {
       console.error('[AppVersionManager] Failed to parse version file:', file.path, error);
       return null;
@@ -544,7 +459,7 @@ export class DataService {
     const appName = app ? sanitizeFileName(app.name) : 'unknown';
     const versionNum = sanitizeFileName(data.versionNumber);
     const fileName = `${appName}_${versionNum}__${id}`;
-    const filePath = this.joinPath(this.getVersionsFolder(), `${fileName}.md`);
+    const filePath = this.pathResolver.joinPath(this.pathResolver.getVersionsFolder(), `${fileName}.md`);
 
     await this.writeFile(filePath, frontmatter);
     this.cache.invalidate(`versions:${data.appId}`);
@@ -575,7 +490,11 @@ export class DataService {
     const appName = app ? sanitizeFileName(app.name) : 'unknown';
     const versionNum = sanitizeFileName(version.versionNumber);
     const fileName = `${appName}_${versionNum}__${version.id}`;
-    const file = await this.findEntityFileById<Version>(this.getVersionsFolder(), this.parseVersionFile, id);
+    const file = await this.findEntityFileById<Version>(
+      this.pathResolver.getVersionsFolder(),
+      this.parseVersionFile,
+      id,
+    );
 
     if (file) {
       const frontmatter = createFrontmatter({
@@ -595,7 +514,7 @@ export class DataService {
       await this.modifyFile(file, frontmatter);
 
       if (file.basename !== fileName) {
-        const newPath = this.joinPath(this.getVersionsFolder(), `${fileName}.md`);
+        const newPath = this.pathResolver.joinPath(this.pathResolver.getVersionsFolder(), `${fileName}.md`);
         await this.renameFile(file, newPath);
       }
     }
@@ -612,7 +531,11 @@ export class DataService {
     const appId = version.appId;
 
     // 第一阶段：收集所有操作
-    const file = await this.findEntityFileById<Version>(this.getVersionsFolder(), this.parseVersionFile, id);
+    const file = await this.findEntityFileById<Version>(
+      this.pathResolver.getVersionsFolder(),
+      this.parseVersionFile,
+      id,
+    );
 
     // 清理所有项目中引用了此版本的 appVersionLinks
     const allProjects = await this.getAllProjects();
@@ -639,7 +562,7 @@ export class DataService {
 
     await this.initializeDataFolders();
     const versions: Version[] = [];
-    const files = await this.getMarkdownFiles(this.getVersionsFolder());
+    const files = await this.getMarkdownFiles(this.pathResolver.getVersionsFolder());
 
     for (const file of files) {
       const version = await this.parseVersionFile(file);
@@ -675,46 +598,12 @@ export class DataService {
 
   private async parseProjectFile(file: TFile | CustomFile): Promise<Project | null> {
     try {
-      let content: string;
       const ctime = file.stat.ctime;
       const mtime = file.stat.mtime;
-
-      if ('readContent' in file) {
-        content = await file.readContent();
-      } else {
-        content = await this.app.vault.read(file);
-      }
-
+      const content = 'readContent' in file ? await file.readContent() : await this.app.vault.read(file);
       const frontmatter = parseFrontmatter(content);
       if (!frontmatter) return null;
-
-      return {
-        id: frontmatter.id ?? file.basename,
-        name: String(frontmatter.name ?? ''),
-        appVersionLinks: parseProjectLinks(frontmatter.appVersionLinks),
-        manager: frontmatter.manager ?? '',
-        responsiblePerson: frontmatter.responsiblePerson ?? '',
-        projectLink: frontmatter.projectLink ?? '',
-        componentLink: frontmatter.componentLink ?? '',
-        features: frontmatter.features ?? '',
-        spec: frontmatter.spec ?? '',
-        requirements: frontmatter.requirements ?? '',
-        progress: frontmatter.progress ?? getFirstProgress(this.plugin.settings.progressStages),
-        progressHistory: parseProgressHistory(frontmatter.progressHistory),
-        b1IntegrationTestTime: frontmatter.b1IntegrationTestTime ?? '',
-        b1SystemTestTime: frontmatter.b1SystemTestTime ?? '',
-        b2IntegrationTestTime: frontmatter.b2IntegrationTestTime ?? '',
-        b2SystemTestTime: frontmatter.b2SystemTestTime ?? '',
-        b3IntegrationTestTime: frontmatter.b3IntegrationTestTime ?? '',
-        b3SystemTestTime: frontmatter.b3SystemTestTime ?? '',
-        b4IntegrationTestTime: frontmatter.b4IntegrationTestTime ?? '',
-        b4SystemTestTime: frontmatter.b4SystemTestTime ?? '',
-        actualReleaseTime: frontmatter.actualReleaseTime ?? '',
-        projectInfo: parseProjectInfo(frontmatter.projectInfo),
-        createdAt: frontmatter.createdAt ?? ctime.toString(),
-        updatedAt: frontmatter.updatedAt ?? mtime.toString(),
-        version: parseNumericField(frontmatter.version, 1),
-      };
+      return extractProjectFields(frontmatter, ctime, mtime, getFirstProgress(this.plugin.settings.progressStages));
     } catch (error) {
       console.error('[AppVersionManager] Failed to parse project file:', file.path, error);
       return null;
@@ -813,7 +702,7 @@ export class DataService {
     });
 
     const fileName = sanitizeFileName(data.name);
-    const projectFilePath = this.joinPath(this.getProjectsFolder(), `${fileName}__${id}.md`);
+    const projectFilePath = this.pathResolver.joinPath(this.pathResolver.getProjectsFolder(), `${fileName}__${id}.md`);
 
     await this.writeFile(projectFilePath, frontmatter);
     this.updateProjectsAllCache((projects) => [...projects, project]);
@@ -897,9 +786,9 @@ export class DataService {
 
     let file: TFile | CustomFile | null = null;
 
-    if (this.isAbsolutePath()) {
+    if (this.pathResolver.isAbsolutePath()) {
       // 对于绝对路径，我们需要手动查找文件
-      const files = await this.getMarkdownFiles(this.getProjectsFolder());
+      const files = await this.getMarkdownFiles(this.pathResolver.getProjectsFolder());
       for (const f of files) {
         const projectData = await this.parseProjectFile(f);
         if (projectData?.id === id) {
@@ -909,10 +798,10 @@ export class DataService {
       }
     } else {
       // 对于相对路径，使用原来的逻辑
-      const oldPath = normalizePath(`${this.getProjectsFolder()}/${oldFileName}.md`);
+      const oldPath = normalizePath(`${this.pathResolver.getProjectsFolder()}/${oldFileName}.md`);
       const fallbackFile = this.app.vault.getAbstractFileByPath(oldPath);
       file =
-        (await this.findEntityFileById<Project>(this.getProjectsFolder(), this.parseProjectFile, id)) ??
+        (await this.findEntityFileById<Project>(this.pathResolver.getProjectsFolder(), this.parseProjectFile, id)) ??
         (fallbackFile instanceof TFile ? fallbackFile : null);
     }
 
@@ -920,7 +809,10 @@ export class DataService {
       await this.modifyFile(file, frontmatter);
 
       if (oldFileName !== newFileName) {
-        const newPath = this.joinPath(this.getProjectsFolder(), `${newFileName}__${project.id}.md`);
+        const newPath = this.pathResolver.joinPath(
+          this.pathResolver.getProjectsFolder(),
+          `${newFileName}__${project.id}.md`,
+        );
         await this.renameFile(file, newPath);
       }
     }
@@ -941,9 +833,9 @@ export class DataService {
     const fileName = sanitizeFileName(project.name);
     let file: TFile | CustomFile | null = null;
 
-    if (this.isAbsolutePath()) {
+    if (this.pathResolver.isAbsolutePath()) {
       // 对于绝对路径，我们需要手动查找文件
-      const files = await this.getMarkdownFiles(this.getProjectsFolder());
+      const files = await this.getMarkdownFiles(this.pathResolver.getProjectsFolder());
       for (const f of files) {
         const projectData = await this.parseProjectFile(f);
         if (projectData?.id === id) {
@@ -952,10 +844,10 @@ export class DataService {
         }
       }
     } else {
-      const filePath = normalizePath(`${this.getProjectsFolder()}/${fileName}.md`);
+      const filePath = normalizePath(`${this.pathResolver.getProjectsFolder()}/${fileName}.md`);
       const fallbackFile = this.app.vault.getAbstractFileByPath(filePath);
       file =
-        (await this.findEntityFileById<Project>(this.getProjectsFolder(), this.parseProjectFile, id)) ??
+        (await this.findEntityFileById<Project>(this.pathResolver.getProjectsFolder(), this.parseProjectFile, id)) ??
         (fallbackFile instanceof TFile ? fallbackFile : null);
     }
 
@@ -978,7 +870,7 @@ export class DataService {
 
     await this.initializeDataFolders();
     const projects: Project[] = [];
-    const files = await this.getMarkdownFiles(this.getProjectsFolder());
+    const files = await this.getMarkdownFiles(this.pathResolver.getProjectsFolder());
 
     for (const file of files) {
       const project = await this.parseProjectFile(file);
@@ -1023,13 +915,16 @@ export class DataService {
     return allApps.find((a) => a.id === id) || null;
   }
 
-
   async upsertAppRecord(record: App): Promise<void> {
     await this.initializeDataFolders();
     const fileName = sanitizeFileName(record.name);
-    const targetPath = this.joinPath(this.getAppsFolder(), `${fileName}__${record.id}.md`);
+    const targetPath = this.pathResolver.joinPath(this.pathResolver.getAppsFolder(), `${fileName}__${record.id}.md`);
     const frontmatter = createFrontmatter(record as unknown as Record<string, unknown>);
-    const existingFile = await this.findEntityFileById<App>(this.getAppsFolder(), this.parseAppFile, record.id);
+    const existingFile = await this.findEntityFileById<App>(
+      this.pathResolver.getAppsFolder(),
+      this.parseAppFile,
+      record.id,
+    );
     if (existingFile) {
       await this.modifyFile(existingFile, frontmatter);
       if (existingFile.path !== targetPath) {
@@ -1045,9 +940,16 @@ export class DataService {
     const app = await this.getAppById(record.appId);
     const appName = sanitizeFileName(app?.name || 'unknown');
     const versionName = sanitizeFileName(record.versionNumber);
-    const targetPath = this.joinPath(this.getVersionsFolder(), `${appName}_${versionName}__${record.id}.md`);
+    const targetPath = this.pathResolver.joinPath(
+      this.pathResolver.getVersionsFolder(),
+      `${appName}_${versionName}__${record.id}.md`,
+    );
     const frontmatter = createFrontmatter(record as unknown as Record<string, unknown>);
-    const existingFile = await this.findEntityFileById<Version>(this.getVersionsFolder(), this.parseVersionFile, record.id);
+    const existingFile = await this.findEntityFileById<Version>(
+      this.pathResolver.getVersionsFolder(),
+      this.parseVersionFile,
+      record.id,
+    );
     if (existingFile) {
       await this.modifyFile(existingFile, frontmatter);
       if (existingFile.path !== targetPath) {
@@ -1061,14 +963,21 @@ export class DataService {
   async upsertProjectRecord(record: Project): Promise<void> {
     await this.initializeDataFolders();
     const fileName = sanitizeFileName(record.name);
-    const targetPath = this.joinPath(this.getProjectsFolder(), `${fileName}__${record.id}.md`);
+    const targetPath = this.pathResolver.joinPath(
+      this.pathResolver.getProjectsFolder(),
+      `${fileName}__${record.id}.md`,
+    );
     const frontmatter = createFrontmatter({
       ...record,
       responsiblePerson: record.responsiblePerson || '',
       progressHistory: record.progressHistory.map((h) => `${h.progress}@${h.changedAt}`),
       appVersionLinks: record.appVersionLinks || [],
     } as Record<string, unknown>);
-    const existingFile = await this.findEntityFileById<Project>(this.getProjectsFolder(), this.parseProjectFile, record.id);
+    const existingFile = await this.findEntityFileById<Project>(
+      this.pathResolver.getProjectsFolder(),
+      this.parseProjectFile,
+      record.id,
+    );
     if (existingFile) {
       await this.modifyFile(existingFile, frontmatter);
       if (existingFile.path !== targetPath) {
@@ -1078,5 +987,4 @@ export class DataService {
       await this.writeFile(targetPath, frontmatter);
     }
   }
-
 }

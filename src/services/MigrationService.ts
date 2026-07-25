@@ -67,7 +67,10 @@ export class MigrationService {
 
     const newDataPath = this.getNewDataPath();
     if (newDataPath === this.oldDataPath) {
-      this.log('warn', `新数据路径与旧 AVM 路径相同（${newDataPath}），建议在设置中将 dataPath 改为不同值（如 workflow-hub）以避免混淆`);
+      this.log(
+        'warn',
+        `新数据路径与旧 AVM 路径相同（${newDataPath}），建议在设置中将 dataPath 改为不同值（如 workflow-hub）以避免混淆`,
+      );
     }
     const timestamp = Date.now();
 
@@ -207,7 +210,9 @@ export class MigrationService {
 
   // ---------- AVM 实体迁移 ----------
   private async migrateAVMEntities(newDataPath: string): Promise<{ apps: number; versions: number; projects: number }> {
-    let apps = 0, versions = 0, projects = 0;
+    let apps = 0,
+      versions = 0,
+      projects = 0;
     const oldPath = this.oldDataPath;
 
     // apps
@@ -223,7 +228,10 @@ export class MigrationService {
           updatedAt: toISO(fm.updatedAt),
           version: Number(fm.version ?? 1),
         };
-        await this.writeNewFile(this.newFilePath(newDataPath, 'apps', String(fm.name ?? 'unnamed'), String(fm.id)), createFrontmatter(newFm));
+        await this.writeNewFile(
+          this.newFilePath(newDataPath, 'apps', String(fm.name ?? 'unnamed'), String(fm.id)),
+          createFrontmatter(newFm),
+        );
         apps++;
       } catch (e) {
         this.log('warn', `迁移 App 失败 ${relativePath}: ${e instanceof Error ? e.message : String(e)}`);
@@ -250,7 +258,10 @@ export class MigrationService {
           version: Number(fm.version ?? 1),
         };
         const baseName = sanitizeFileName(`${fm.appId ?? 'app'}_${fm.versionNumber ?? 'ver'}`);
-        await this.writeNewFile(this.newFilePath(newDataPath, 'versions', baseName, String(fm.id)), createFrontmatter(newFm));
+        await this.writeNewFile(
+          this.newFilePath(newDataPath, 'versions', baseName, String(fm.id)),
+          createFrontmatter(newFm),
+        );
         versions++;
       } catch (e) {
         this.log('warn', `迁移 Version 失败 ${relativePath}: ${e instanceof Error ? e.message : String(e)}`);
@@ -296,7 +307,10 @@ export class MigrationService {
           updatedAt: toISO(fm.updatedAt),
           version: Number(fm.version ?? 1),
         };
-        await this.writeNewFile(this.newFilePath(newDataPath, 'projects', sanitizeFileName(String(fm.name ?? 'unnamed')), String(fm.id)), createFrontmatter(newFm));
+        await this.writeNewFile(
+          this.newFilePath(newDataPath, 'projects', sanitizeFileName(String(fm.name ?? 'unnamed')), String(fm.id)),
+          createFrontmatter(newFm),
+        );
         projects++;
       } catch (e) {
         this.log('warn', `迁移 Project 失败 ${relativePath}: ${e instanceof Error ? e.message : String(e)}`);
@@ -355,6 +369,7 @@ export class MigrationService {
       pinned: false,
       categoryId: null,
       projectId: todo.projectId ? String(todo.projectId) : null,
+      responsiblePerson: '',
       completedAt: completed ? updatedAt : '',
       createdAt: toISO(todo.createdAt) || updatedAt,
       updatedAt,
@@ -414,6 +429,7 @@ export class MigrationService {
       pinned: false,
       categoryId: null, // 迁移来的待办默认未分类
       projectId: null, // todolist 无项目概念
+      responsiblePerson: '', // 迁移来的待办默认无负责人
       completedAt: completed ? createdAt : '',
       createdAt,
       updatedAt: createdAt, // todolist 无 updatedAt，用 createdAt 兜底
@@ -438,9 +454,9 @@ export class MigrationService {
    * 支持 vault 相对路径和绝对路径。
    * 返回统一格式：{ content: string; relativePath: string; isAbsolute: boolean }
    */
-  private async listOldMarkdownFiles(folderPath: string): Promise<
-    Array<{ content: string; relativePath: string; isAbsolute: boolean }>
-  > {
+  private async listOldMarkdownFiles(
+    folderPath: string,
+  ): Promise<Array<{ content: string; relativePath: string; isAbsolute: boolean }>> {
     const result: Array<{ content: string; relativePath: string; isAbsolute: boolean }> = [];
 
     if (this.isOldAbsolutePath(folderPath)) {
@@ -536,9 +552,18 @@ export class MigrationService {
     }
   }
 
-  private verify(stats: { avmApps: number; avmVersions: number; avmProjects: number; avmTodos: number; todolistTodos: number }): boolean {
+  private verify(stats: {
+    avmApps: number;
+    avmVersions: number;
+    avmProjects: number;
+    avmTodos: number;
+    todolistTodos: number;
+  }): boolean {
     const totalTodos = stats.avmTodos + stats.todolistTodos;
-    this.log('info', `自检: ${stats.avmApps} apps, ${stats.avmVersions} versions, ${stats.avmProjects} projects, ${totalTodos} todos`);
+    this.log(
+      'info',
+      `自检: ${stats.avmApps} apps, ${stats.avmVersions} versions, ${stats.avmProjects} projects, ${totalTodos} todos`,
+    );
     // 基本自检：无严重错误即通过（更严格的数量对比可在实际数据上做）
     const hasError = this.logs.some((l) => l.level === 'error');
     return !hasError;

@@ -192,7 +192,9 @@ describe('DataService (vault path)', () => {
         if (path === appFile.path || path === appFile.name) return appFile;
         return null;
       });
-      mocks.vaultRead.mockResolvedValue('---\nid: app-1\nname: MyApp\ncreatedAt: "2026-01-01"\nupdatedAt: "2026-01-15"\nversion: 1\n---\n');
+      mocks.vaultRead.mockResolvedValue(
+        '---\nid: app-1\nname: MyApp\ncreatedAt: "2026-01-01"\nupdatedAt: "2026-01-15"\nversion: 1\n---\n',
+      );
 
       const apps = await service.getAllApps();
       expect(apps).toHaveLength(1);
@@ -210,7 +212,9 @@ describe('DataService (vault path)', () => {
         if (path === appFile.path || path === appFile.name) return appFile;
         return null;
       });
-      mocks.vaultRead.mockResolvedValue('---\nid: app-1\nname: MyApp\ncreatedAt: "2026-01-01"\nupdatedAt: "2026-01-15"\nversion: 1\n---\n');
+      mocks.vaultRead.mockResolvedValue(
+        '---\nid: app-1\nname: MyApp\ncreatedAt: "2026-01-01"\nupdatedAt: "2026-01-15"\nversion: 1\n---\n',
+      );
 
       await service.getAllApps();
       await service.getAllApps();
@@ -315,7 +319,8 @@ describe('DataService (vault path)', () => {
       // Return correct content per file path
       mocks.vaultRead.mockImplementation(async (file: TFile) => {
         if (file.path?.includes('App__app-1')) return '---\nid: app-1\nname: App\nversion: 1\n---\n';
-        if (file.path?.includes('App_v1__ver-1')) return '---\nid: ver-1\nappId: app-1\nversionNumber: v1\nversion: 1\n---\n';
+        if (file.path?.includes('App_v1__ver-1'))
+          return '---\nid: ver-1\nappId: app-1\nversionNumber: v1\nversion: 1\n---\n';
         return '---\nid: unknown\n---\n';
       });
 
@@ -367,7 +372,8 @@ describe('DataService (vault path)', () => {
 
       mocks.getAbstractFileByPath.mockImplementation((path: string) => {
         if (path === 'app-version-manager/versions' || path === 'app-version-manager') return folder;
-        if ([ver1.path, ver2.path, ver3.path].includes(path)) return [ver1, ver2, ver3].find((f) => f.path === path) || null;
+        if ([ver1.path, ver2.path, ver3.path].includes(path))
+          return [ver1, ver2, ver3].find((f) => f.path === path) || null;
         return null;
       });
       mocks.vaultRead.mockImplementation(async (file: TFile) => {
@@ -402,7 +408,9 @@ describe('DataService (vault path)', () => {
         if (path === verFile.path || path === verFile.name) return verFile;
         return null;
       });
-      mocks.vaultRead.mockResolvedValue('---\nid: ver-1\nappId: app-1\nversionNumber: 1.0.0\nbllVersion: 1.0\nippVersion: 2.0\nversion: 1\n---\n');
+      mocks.vaultRead.mockResolvedValue(
+        '---\nid: ver-1\nappId: app-1\nversionNumber: 1.0.0\nbllVersion: 1.0\nippVersion: 2.0\nversion: 1\n---\n',
+      );
 
       const versions = await service.getAllVersions();
       expect(versions).toHaveLength(1);
@@ -459,7 +467,9 @@ describe('DataService (vault path)', () => {
         if (path === verFile.path || path === verFile.name) return verFile;
         return null;
       });
-      mocks.vaultRead.mockResolvedValue('---\nid: ver-1\nappId: app-1\nversionNumber: 1.0.0\nisArchived: false\nversion: 1\n---\n');
+      mocks.vaultRead.mockResolvedValue(
+        '---\nid: ver-1\nappId: app-1\nversionNumber: 1.0.0\nisArchived: false\nversion: 1\n---\n',
+      );
 
       const archived = await service.archiveVersion('ver-1', 1);
       expect(archived).not.toBeNull();
@@ -478,7 +488,9 @@ describe('DataService (vault path)', () => {
         if (path === verFile.path || path === verFile.name) return verFile;
         return null;
       });
-      mocks.vaultRead.mockResolvedValue('---\nid: ver-1\nappId: app-1\nversionNumber: 1.0.0\nisArchived: true\nversion: 1\n---\n');
+      mocks.vaultRead.mockResolvedValue(
+        '---\nid: ver-1\nappId: app-1\nversionNumber: 1.0.0\nisArchived: true\nversion: 1\n---\n',
+      );
 
       const unarchived = await service.unarchiveVersion('ver-1', 1);
       expect(unarchived).not.toBeNull();
@@ -513,8 +525,10 @@ describe('DataService (vault path)', () => {
         return null;
       });
       mocks.vaultRead.mockImplementation(async (file: TFile) => {
-        if (file.path?.includes('App_v1__ver-1')) return '---\nid: ver-1\nappId: app-1\nversionNumber: 1.0.0\nversion: 1\n---\n';
-        if (file.path?.includes('Proj__proj-1')) return '---\nid: proj-1\nname: Proj\nversionId: ver-1\nversion: 1\n---\n';
+        if (file.path?.includes('App_v1__ver-1'))
+          return '---\nid: ver-1\nappId: app-1\nversionNumber: 1.0.0\nversion: 1\n---\n';
+        if (file.path?.includes('Proj__proj-1'))
+          return '---\nid: proj-1\nname: Proj\nappVersionLinks:\n  - appId: app-1\n    versionId: ver-1\nversion: 1\n---\n';
         return '---\nid: unknown\n---\n';
       });
 
@@ -535,11 +549,10 @@ describe('DataService (vault path)', () => {
 
       const project = await service.createProject({
         name: 'Test Project',
-        versionId: 'ver-1',
         manager: 'Alice',
       });
       expect(project.name).toBe('Test Project');
-      expect(project.versionId).toBe('ver-1');
+      expect(project.appVersionLinks).toEqual([]);
       expect(project.progress).toBe('需求分解'); // first progress stage
       expect(project.version).toBe(1);
       // Should have created project file (memo file no longer created)
@@ -558,7 +571,9 @@ describe('DataService (vault path)', () => {
       });
       mocks.vaultRead.mockResolvedValue('---\nid: proj-1\nname: Dup\nversion: 1\n---\n');
 
-      await expect(service.createProject({ name: 'Dup', versionId: 'v1' })).rejects.toThrow('Project name already exists');
+      await expect(service.createProject({ name: 'Dup' })).rejects.toThrow(
+        'Project name already exists',
+      );
     });
   });
 
@@ -746,8 +761,10 @@ version: 1
         return null;
       });
       mocks.vaultRead.mockImplementation(async (file: TFile) => {
-        if (file.path === p1.path) return '---\nid: p1\nname: P1\nversionId: ver-1\nprogress: 需求分解\nversion: 1\n---\n';
-        if (file.path === p2.path) return '---\nid: p2\nname: P2\nversionId: ver-2\nprogress: 已提测\nversion: 1\n---\n';
+        if (file.path === p1.path)
+          return '---\nid: p1\nname: P1\nappVersionLinks:\n  - appId: app-1\n    versionId: ver-1\nprogress: 需求分解\nversion: 1\n---\n';
+        if (file.path === p2.path)
+          return '---\nid: p2\nname: P2\nversionId: ver-2\nprogress: 已提测\nversion: 1\n---\n';
         return '---\nid: unknown\n---\n';
       });
 

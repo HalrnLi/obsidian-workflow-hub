@@ -36,12 +36,13 @@ export class AppVersionManagerView extends ItemView {
   /** 项目子 Tab：进行中 / 已发布 */
   projectSubTab: 'active' | 'archived' = 'active';
   savedFilters: SavedFilter[] = [];
-  currentFilter: { progress: ProjectProgress | null; keyword: string; appId: string | null; versionId: string | null } = {
-    progress: null,
-    keyword: '',
-    appId: null,
-    versionId: null,
-  };
+  currentFilter: { progress: ProjectProgress | null; keyword: string; appId: string | null; versionId: string | null } =
+    {
+      progress: null,
+      keyword: '',
+      appId: null,
+      versionId: null,
+    };
   importExportService: ImportExportService;
   private todoTabView: TodoTabView | null = null;
   private detailProjectId: string | null = null;
@@ -398,13 +399,7 @@ export class AppVersionManagerView extends ItemView {
 
     // === APP/版本管理 Tab ===
     if (this.currentTab === 'app-version') {
-      new AppVersionManageView(
-        this.mainEl,
-        this.plugin,
-        this.apps,
-        this.versions,
-        () => this.refresh(),
-      );
+      new AppVersionManageView(this.mainEl, this.plugin, this.apps, this.versions, () => this.refresh());
       return;
     }
 
@@ -478,7 +473,10 @@ export class AppVersionManagerView extends ItemView {
   private async renderProjectDetailContent(wrapper: HTMLElement, project: Project) {
     // 顶部：返回按钮
     const header = wrapper.createDiv({ cls: 'avm-project-detail-header' });
-    new ButtonComponent(header).setIcon('arrow-left').setButtonText('返回').onClick(() => this.onCloseProjectDetail());
+    new ButtonComponent(header)
+      .setIcon('arrow-left')
+      .setButtonText('返回')
+      .onClick(() => this.onCloseProjectDetail());
     header.createEl('h3', { text: project.name });
 
     // 只读信息区
@@ -525,10 +523,16 @@ export class AppVersionManagerView extends ItemView {
     }
 
     // 提测计划
-    const hasTestPlan = project.b1IntegrationTestTime || project.b1SystemTestTime ||
-      project.b2IntegrationTestTime || project.b2SystemTestTime ||
-      project.b3IntegrationTestTime || project.b3SystemTestTime ||
-      project.b4IntegrationTestTime || project.b4SystemTestTime || project.actualReleaseTime;
+    const hasTestPlan =
+      project.b1IntegrationTestTime ||
+      project.b1SystemTestTime ||
+      project.b2IntegrationTestTime ||
+      project.b2SystemTestTime ||
+      project.b3IntegrationTestTime ||
+      project.b3SystemTestTime ||
+      project.b4IntegrationTestTime ||
+      project.b4SystemTestTime ||
+      project.actualReleaseTime;
     if (hasTestPlan) {
       addSection('提测计划');
       addLine('B1集成测试', project.b1IntegrationTestTime);
@@ -595,7 +599,9 @@ export class AppVersionManagerView extends ItemView {
 
     // 按版本过滤
     if (this.currentFilter.versionId) {
-      projects = projects.filter((p) => p.appVersionLinks.some((link) => link.versionId === this.currentFilter.versionId));
+      projects = projects.filter((p) =>
+        p.appVersionLinks.some((link) => link.versionId === this.currentFilter.versionId),
+      );
     }
 
     // 按进度过滤
@@ -637,14 +643,21 @@ export class AppVersionManagerView extends ItemView {
   }
 
   private showCreateProjectModal() {
-    new CreateProjectModal(this.app, this.apps, this.versions, this.plugin.settings.progressStages, this.plugin.settings.responsiblePersons, async (data) => {
-      try {
-        await this.plugin.dataService.createProject(data);
-        await this.refresh();
-      } catch (error) {
-        new Notice(error instanceof Error ? error.message : String(error));
-      }
-    }).open();
+    new CreateProjectModal(
+      this.app,
+      this.apps,
+      this.versions,
+      this.plugin.settings.progressStages,
+      this.plugin.settings.responsiblePersons,
+      async (data) => {
+        try {
+          await this.plugin.dataService.createProject(data);
+          await this.refresh();
+        } catch (error) {
+          new Notice(error instanceof Error ? error.message : String(error));
+        }
+      },
+    ).open();
   }
 
   private async showSaveFilterModal() {
@@ -792,7 +805,9 @@ export class AppVersionManagerView extends ItemView {
     if (project.features) {
       const featuresEl = item.createDiv({ cls: 'avm-project-features' });
       featuresEl.createEl('strong', { text: '特性:' });
-      featuresEl.createSpan({ text: project.features.substring(0, 100) + (project.features.length > 100 ? '...' : '') });
+      featuresEl.createSpan({
+        text: project.features.substring(0, 100) + (project.features.length > 100 ? '...' : ''),
+      });
     }
 
     // Meta info
@@ -835,7 +850,9 @@ export class AppVersionManagerView extends ItemView {
     if (project.requirements) {
       const req = item.createDiv({ cls: 'avm-project-requirements' });
       req.createEl('strong', { text: '需求:' });
-      req.createSpan({ text: project.requirements.substring(0, 100) + (project.requirements.length > 100 ? '...' : '') });
+      req.createSpan({
+        text: project.requirements.substring(0, 100) + (project.requirements.length > 100 ? '...' : ''),
+      });
     }
 
     // Context menu
@@ -860,9 +877,7 @@ export class AppVersionManagerView extends ItemView {
 
     const archivedProjects = this.getArchivedProjects();
     const keyword = this.currentFilter.keyword.toLowerCase();
-    const filtered = keyword
-      ? this.filterProjectsByKeyword(archivedProjects, keyword)
-      : archivedProjects;
+    const filtered = keyword ? this.filterProjectsByKeyword(archivedProjects, keyword) : archivedProjects;
 
     const listContainer = listEl.createDiv({ cls: 'avm-archived-list' });
     if (filtered.length === 0) {
@@ -961,14 +976,22 @@ export class AppVersionManagerView extends ItemView {
 
   /** 打开编辑项目弹窗 */
   openEditProjectModal(project: Project) {
-    new EditProjectModal(this.plugin.app, project, this.apps, this.versions, this.plugin.settings.progressStages, this.plugin.settings.responsiblePersons, async (data) => {
-      try {
-        await this.plugin.dataService.updateProject(project.id, data, project.version);
-        await this.refresh();
-      } catch (error) {
-        new Notice(error instanceof Error ? error.message : String(error));
-      }
-    }).open();
+    new EditProjectModal(
+      this.plugin.app,
+      project,
+      this.apps,
+      this.versions,
+      this.plugin.settings.progressStages,
+      this.plugin.settings.responsiblePersons,
+      async (data) => {
+        try {
+          await this.plugin.dataService.updateProject(project.id, data, project.version);
+          await this.refresh();
+        } catch (error) {
+          new Notice(error instanceof Error ? error.message : String(error));
+        }
+      },
+    ).open();
   }
 
   async onClose() {

@@ -1,6 +1,16 @@
 import { App as ObsidianApp } from 'obsidian';
 import AppVersionManagerPlugin from '../main';
-import { Project, Version, ProjectLink, ProjectProgress, getProgressOrder, getFirstProgress, Todo, Category, App } from '../types';
+import {
+  Project,
+  Version,
+  ProjectLink,
+  ProjectProgress,
+  getProgressOrder,
+  getFirstProgress,
+  Todo,
+  Category,
+  App,
+} from '../types';
 
 export interface ExportProjectJson {
   projectName: string;
@@ -94,7 +104,10 @@ export class ImportExportService {
       ];
     });
 
-    const csvContent = [headers.join(','), ...rows.map((row) => row.map((cell) => this.escapeCSV(cell)).join(','))].join('\n');
+    const csvContent = [
+      headers.join(','),
+      ...rows.map((row) => row.map((cell) => this.escapeCSV(cell)).join(',')),
+    ].join('\n');
 
     return csvContent;
   }
@@ -204,7 +217,10 @@ export class ImportExportService {
     const allApps = await this.plugin.dataService.getAllApps();
     const allVersions = await this.plugin.dataService.getAllVersions();
 
-    const pairs = input.split(';').map((s) => s.trim()).filter(Boolean);
+    const pairs = input
+      .split(';')
+      .map((s) => s.trim())
+      .filter(Boolean);
 
     for (const pair of pairs) {
       const slashIndex = pair.lastIndexOf('/');
@@ -396,17 +412,7 @@ export class ImportExportService {
       '': '无',
     };
 
-    const headers = [
-      '内容',
-      '状态',
-      '优先级',
-      '分类',
-      '关联项目',
-      '截止日期',
-      '链接',
-      '创建时间',
-      '完成时间',
-    ];
+    const headers = ['内容', '状态', '优先级', '分类', '关联项目', '截止日期', '链接', '创建时间', '完成时间'];
 
     const rows = todos.map((todo) => {
       const cat = todo.categoryId ? categories.find((c) => c.id === todo.categoryId) : null;
@@ -423,7 +429,10 @@ export class ImportExportService {
       ];
     });
 
-    const csvContent = [headers.join(','), ...rows.map((row) => row.map((cell) => this.escapeCSV(cell)).join(','))].join('\n');
+    const csvContent = [
+      headers.join(','),
+      ...rows.map((row) => row.map((cell) => this.escapeCSV(cell)).join(',')),
+    ].join('\n');
     return csvContent;
   }
 }

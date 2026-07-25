@@ -48,13 +48,17 @@ export class EditProjectModal extends Modal {
       progress: this.project.progress,
     };
 
-    new Setting(contentEl).setName('项目名称 *').addText((text) => text.setValue(data.name).onChange((value) => (data.name = value)));
+    new Setting(contentEl)
+      .setName('项目名称 *')
+      .addText((text) => text.setValue(data.name).onChange((value) => (data.name = value)));
 
     // APP/版本关联 — 多关联选择
     const linksContainer = contentEl.createDiv({ cls: 'avm-links-editor-container' });
     new AppVersionLinksEditor(linksContainer, this.apps, this.versions, data.appVersionLinks);
 
-    new Setting(contentEl).setName('项目经理').addText((text) => text.setValue(data.manager).onChange((value) => (data.manager = value)));
+    new Setting(contentEl)
+      .setName('项目经理')
+      .addText((text) => text.setValue(data.manager).onChange((value) => (data.manager = value)));
 
     // 负责人下拉选择
     new Setting(contentEl).setName('负责人').addDropdown((dropdown) => {
@@ -86,7 +90,9 @@ export class EditProjectModal extends Modal {
       dropdown.onChange((value) => (data.progress = value as ProjectProgress));
     });
 
-    new Setting(contentEl).setName('特性').addTextArea((text) => text.setValue(data.features).onChange((value) => (data.features = value)));
+    new Setting(contentEl)
+      .setName('特性')
+      .addTextArea((text) => text.setValue(data.features).onChange((value) => (data.features = value)));
 
     new Setting(contentEl)
       .setName('配置组件/规格')
@@ -107,7 +113,6 @@ export class EditProjectModal extends Modal {
       () => this.close(),
     );
   }
-
 
   onClose() {
     this.contentEl.empty();

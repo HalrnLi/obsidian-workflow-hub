@@ -6,7 +6,12 @@ export class DeleteFilterModal extends Modal {
   onSubmit: (filterId: string) => Promise<void>;
   onCloseCallback: () => void;
 
-  constructor(app: ObsidianApp, filters: SavedFilter[], onSubmit: (filterId: string) => Promise<void>, onCloseCallback: () => void) {
+  constructor(
+    app: ObsidianApp,
+    filters: SavedFilter[],
+    onSubmit: (filterId: string) => Promise<void>,
+    onCloseCallback: () => void,
+  ) {
     super(app);
     this.filters = filters;
     this.onSubmit = onSubmit;

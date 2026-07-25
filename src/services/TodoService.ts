@@ -1,8 +1,8 @@
 import { existsSync, readFileSync, writeFileSync, unlinkSync, readdirSync, statSync, mkdirSync } from 'fs';
-import { join, isAbsolute } from 'path';
+import { join } from 'path';
 import { normalizePath, TFile } from 'obsidian';
 import AppVersionManagerPlugin from '../main';
-import { Todo, CreateTodoInput, TodoStatus, ConcurrencyConflictError } from '../types';
+import { Todo, CreateTodoInput, TodoStatus, ConcurrencyConflictError, PluginSettings } from '../types';
 import { parseFrontmatter, createFrontmatter, parseNumericField } from '../utils/frontmatter';
 import { generateId, sanitizeFileName } from '../utils/idUtils';
 import { nowISO, todayStr } from '../utils/dateUtils';
@@ -29,25 +29,44 @@ export class TodoService {
   private byProject = new Map<string, Set<Todo>>();
   private byStatus = new Map<TodoStatus, Set<Todo>>();
   private byDueDate = new Map<string, Set<Todo>>();
+  private byPerson = new Map<string, Set<Todo>>();
   private searchIndex = new Map<string, Set<Todo>>();
   private loaded = false;
+  private currentResponsiblePerson: string = '';
 
   constructor(plugin: AppVersionManagerPlugin) {
     this.plugin = plugin;
+  }
+
+  // ---------- 负责人筛选 ----------
+  /** 获取当前选中的负责人（空字符串=显示全部） */
+  getCurrentResponsiblePerson(): string {
+    return this.currentResponsiblePerson;
+  }
+
+  /** 设置当前负责人，切换后视图应重新渲染 */
+  setCurrentResponsiblePerson(person: string): void {
+    this.currentResponsiblePerson = person;
+  }
+
+  /** 获取所有有待办的负责人列表（去重+排序） */
+  getResponsiblePersons(): string[] {
+    const persons = new Set<string>();
+    for (const todo of this.byId.values()) {
+      if (todo.responsiblePerson) persons.add(todo.responsiblePerson);
+    }
+    return [...persons].sort();
   }
 
   private getDataPath(): string {
     return this.plugin.settings.dataPath || 'workflow-hub';
   }
 
-  private isAbsolutePath(): boolean {
-    const path = this.getDataPath();
-    return isAbsolute(path) || /^[A-Za-z]:/.test(path);
-  }
-
   private getTodosFolder(): string {
     const dataPath = this.getDataPath();
-    return this.isAbsolutePath() ? join(dataPath, 'todos') : `${dataPath}/todos`;
+    return this.plugin.dataService.pathResolver.isAbsolutePath()
+      ? this.plugin.dataService.pathResolver.joinPath(dataPath, 'todos')
+      : `${dataPath}/todos`;
   }
 
   /** 文件命名：{content前20字符 sanitize}__{id}.md */
@@ -55,7 +74,9 @@ export class TodoService {
     const folder = this.getTodosFolder();
     const name = sanitizeFileName((todo.content || 'untitled').slice(0, 20));
     const fileName = `${name}__${todo.id}.md`;
-    return this.isAbsolutePath() ? join(folder, fileName) : normalizePath(`${folder}/${fileName}`);
+    return this.plugin.dataService.pathResolver.isAbsolutePath()
+      ? this.plugin.dataService.pathResolver.joinPath(folder, fileName)
+      : normalizePath(`${folder}/${fileName}`);
   }
 
   // ---------- 索引加载 ----------
@@ -81,6 +102,7 @@ export class TodoService {
     this.byProject.clear();
     this.byStatus.clear();
     this.byDueDate.clear();
+    this.byPerson.clear();
     this.searchIndex.clear();
   }
 
@@ -91,6 +113,7 @@ export class TodoService {
     this.addToSetIndex(this.byProject, todo.projectId ?? NULL_KEY, todo);
     this.addToSetIndex(this.byStatus, todo.status, todo);
     if (todo.dueDate) this.addToSetIndex(this.byDueDate, todo.dueDate, todo);
+    this.addToSetIndex(this.byPerson, todo.responsiblePerson || NULL_KEY, todo);
     this.indexSearchAdd(todo);
   }
 
@@ -100,6 +123,7 @@ export class TodoService {
     this.removeFromSetIndex(this.byProject, todo.projectId ?? NULL_KEY, todo);
     this.removeFromSetIndex(this.byStatus, todo.status, todo);
     if (todo.dueDate) this.removeFromSetIndex(this.byDueDate, todo.dueDate, todo);
+    this.removeFromSetIndex(this.byPerson, todo.responsiblePerson || NULL_KEY, todo);
     this.indexSearchRemove(todo);
   }
 
@@ -134,7 +158,10 @@ export class TodoService {
   private tokenize(text: string): string[] {
     if (!text) return [];
     const tokens = new Set<string>();
-    const words = text.toLowerCase().split(/[^\w\u4e00-\u9fa5]+/).filter(Boolean);
+    const words = text
+      .toLowerCase()
+      .split(/[^\w\u4e00-\u9fa5]+/)
+      .filter(Boolean);
     for (const w of words) {
       if (/^[a-z0-9]+$/.test(w)) {
         tokens.add(w);
@@ -158,7 +185,7 @@ export class TodoService {
     const folder = this.getTodosFolder();
     const todos: Todo[] = [];
 
-    if (this.isAbsolutePath()) {
+    if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
       if (!existsSync(folder)) return [];
       for (const item of readdirSync(folder)) {
         const full = join(folder, item);
@@ -203,6 +230,7 @@ export class TodoService {
       pinned: fm.pinned === true,
       categoryId: isNullish(fm.categoryId) ? null : String(fm.categoryId),
       projectId: isNullish(fm.projectId) ? null : String(fm.projectId),
+      responsiblePerson: fm.responsiblePerson ?? '',
       completedAt: fm.completedAt ?? '',
       createdAt: fm.createdAt ?? '',
       updatedAt: fm.updatedAt ?? '',
@@ -221,6 +249,7 @@ export class TodoService {
       pinned: todo.pinned,
       categoryId: todo.categoryId,
       projectId: todo.projectId,
+      responsiblePerson: todo.responsiblePerson,
       completedAt: todo.completedAt,
       createdAt: todo.createdAt,
       updatedAt: todo.updatedAt,
@@ -232,7 +261,7 @@ export class TodoService {
     const filePath = this.getTodoFilePath(todo);
     const content = this.serializeTodo(todo);
     await this.ensureFolder();
-    if (this.isAbsolutePath()) {
+    if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
       writeFileSync(filePath, content, 'utf-8');
     } else {
       const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
@@ -246,7 +275,7 @@ export class TodoService {
 
   private async deleteTodoFile(todo: Pick<Todo, 'id' | 'content'>): Promise<void> {
     const filePath = this.getTodoFilePath(todo);
-    if (this.isAbsolutePath()) {
+    if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
       if (existsSync(filePath)) unlinkSync(filePath);
     } else {
       const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
@@ -256,7 +285,7 @@ export class TodoService {
 
   private async ensureFolder(): Promise<void> {
     const folder = this.getTodosFolder();
-    if (this.isAbsolutePath()) {
+    if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
       if (!existsSync(folder)) mkdirSync(folder, { recursive: true });
     } else {
       if (!this.plugin.app.vault.getAbstractFileByPath(folder)) {
@@ -268,7 +297,11 @@ export class TodoService {
   // ---------- 查询 API ----------
   async getAllTodos(): Promise<Todo[]> {
     if (!this.loaded) await this.loadAllIndexes();
-    return [...this.byId.values()];
+    let todos = [...this.byId.values()];
+    if (this.currentResponsiblePerson) {
+      todos = todos.filter((t) => t.responsiblePerson === this.currentResponsiblePerson);
+    }
+    return todos;
   }
 
   async getById(id: string): Promise<Todo | null> {
@@ -315,9 +348,8 @@ export class TodoService {
     if (!keyword.trim()) return [...this.byId.values()];
     const lower = keyword.trim().toLowerCase();
     // 子串匹配：搜索范围包括待办内容、链接
-    return [...this.byId.values()].filter((t) =>
-      (t.content && t.content.toLowerCase().includes(lower)) ||
-      (t.link && t.link.toLowerCase().includes(lower))
+    return [...this.byId.values()].filter(
+      (t) => (t.content && t.content.toLowerCase().includes(lower)) || (t.link && t.link.toLowerCase().includes(lower)),
     );
   }
 
@@ -333,6 +365,8 @@ export class TodoService {
     /** 创建日期范围筛选（基于 createdAt 的日期部分） */
     createdDateFrom?: string;
     createdDateTo?: string;
+    /** 负责人筛选（undefined=使用当前全局筛选，空字符串=未分配） */
+    responsiblePerson?: string | null;
   }): Promise<Todo[]> {
     let todos = await this.getAllTodos();
     if (filter.categoryId !== undefined) {
@@ -380,6 +414,9 @@ export class TodoService {
         return false;
       });
     }
+    if (filter.responsiblePerson !== undefined) {
+      todos = todos.filter((t) => (t.responsiblePerson || '') === (filter.responsiblePerson || ''));
+    }
     return todos;
   }
 
@@ -397,6 +434,7 @@ export class TodoService {
       pinned: input.pinned ?? false,
       categoryId: input.categoryId ?? null,
       projectId: input.projectId ?? null,
+      responsiblePerson: input.responsiblePerson ?? this.currentResponsiblePerson ?? '',
       completedAt: input.status === 'done' ? now : '',
       createdAt: now,
       updatedAt: now,

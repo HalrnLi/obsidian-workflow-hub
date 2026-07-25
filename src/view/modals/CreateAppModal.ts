@@ -17,7 +17,9 @@ export class CreateAppModal extends Modal {
 
     let appName = '';
 
-    new Setting(contentEl).setName('APP名称').addText((text) => text.setPlaceholder('输入APP名称').onChange((value) => (appName = value)));
+    new Setting(contentEl)
+      .setName('APP名称')
+      .addText((text) => text.setPlaceholder('输入APP名称').onChange((value) => (appName = value)));
 
     createActionButtons(contentEl, {
       confirmText: '创建',

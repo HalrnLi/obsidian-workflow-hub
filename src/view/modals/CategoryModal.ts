@@ -82,52 +82,65 @@ export class CategoryModal extends Modal {
 
       // 上移
       setting.addExtraButton((btn) =>
-        btn.setIcon('arrow-up').setTooltip('上移').onClick(async () => {
-          if (index > 0) {
-            const prev = this.categories[index - 1];
-            await this.plugin.categoryService.update(cat.id, { sortOrder: prev.sortOrder }, cat.version);
-            await this.plugin.categoryService.update(prev.id, { sortOrder: cat.sortOrder }, prev.version);
-            await this.reload();
-            this.onChange?.();
-            this.renderList();
-          }
-        }),
+        btn
+          .setIcon('arrow-up')
+          .setTooltip('上移')
+          .onClick(async () => {
+            if (index > 0) {
+              const prev = this.categories[index - 1];
+              await this.plugin.categoryService.update(cat.id, { sortOrder: prev.sortOrder }, cat.version);
+              await this.plugin.categoryService.update(prev.id, { sortOrder: cat.sortOrder }, prev.version);
+              await this.reload();
+              this.onChange?.();
+              this.renderList();
+            }
+          }),
       );
 
       // 下移
       setting.addExtraButton((btn) =>
-        btn.setIcon('arrow-down').setTooltip('下移').onClick(async () => {
-          if (index < this.categories.length - 1) {
-            const next = this.categories[index + 1];
-            await this.plugin.categoryService.update(cat.id, { sortOrder: next.sortOrder }, cat.version);
-            await this.plugin.categoryService.update(next.id, { sortOrder: cat.sortOrder }, next.version);
-            await this.reload();
-            this.onChange?.();
-            this.renderList();
-          }
-        }),
+        btn
+          .setIcon('arrow-down')
+          .setTooltip('下移')
+          .onClick(async () => {
+            if (index < this.categories.length - 1) {
+              const next = this.categories[index + 1];
+              await this.plugin.categoryService.update(cat.id, { sortOrder: next.sortOrder }, cat.version);
+              await this.plugin.categoryService.update(next.id, { sortOrder: cat.sortOrder }, next.version);
+              await this.reload();
+              this.onChange?.();
+              this.renderList();
+            }
+          }),
       );
 
       // 保存按钮
       setting.addExtraButton((btn) =>
-        btn.setIcon('check').setTooltip('保存').onClick(async () => {
-          const editData = this.editing.get(cat.id);
-          if (!editData) return;
-          const trimmedName = editData.name.trim();
-          if (!trimmedName) {
-            new Notice('分类名称不能为空');
-            return;
-          }
-          try {
-            await this.plugin.categoryService.update(cat.id, { name: trimmedName, color: editData.color }, cat.version);
-            this.editing.delete(cat.id);
-            await this.reload();
-            this.onChange?.();
-            this.renderList();
-          } catch (e) {
-            new Notice(e instanceof Error ? e.message : String(e));
-          }
-        }),
+        btn
+          .setIcon('check')
+          .setTooltip('保存')
+          .onClick(async () => {
+            const editData = this.editing.get(cat.id);
+            if (!editData) return;
+            const trimmedName = editData.name.trim();
+            if (!trimmedName) {
+              new Notice('分类名称不能为空');
+              return;
+            }
+            try {
+              await this.plugin.categoryService.update(
+                cat.id,
+                { name: trimmedName, color: editData.color },
+                cat.version,
+              );
+              this.editing.delete(cat.id);
+              await this.reload();
+              this.onChange?.();
+              this.renderList();
+            } catch (e) {
+              new Notice(e instanceof Error ? e.message : String(e));
+            }
+          }),
       );
       // 保存按钮是最后一个 extraButton，通过 settingEl 查找
       const saveBtnEl = setting.settingEl.querySelector('.setting-item-extra-button:last-child') as HTMLElement | null;
@@ -138,26 +151,29 @@ export class CategoryModal extends Modal {
 
       // 删除
       setting.addExtraButton((btn) =>
-        btn.setIcon('trash').setTooltip('删除').onClick(() => {
-          new ConfirmModal(
-            this.app,
-            '删除分类',
-            `确定删除分类 "${cat.name}" 吗？\n该分类下的待办不会删除，会变为"未分类"。`,
-            async () => {
-              try {
-                await this.plugin.categoryService.delete(cat.id);
-                this.editing.delete(cat.id);
-                await this.reload();
-                this.onChange?.();
-                this.renderList();
-              } catch (e) {
-                new Notice(e instanceof Error ? e.message : String(e));
-              }
-            },
-            undefined,
-            true,
-          ).open();
-        }),
+        btn
+          .setIcon('trash')
+          .setTooltip('删除')
+          .onClick(() => {
+            new ConfirmModal(
+              this.app,
+              '删除分类',
+              `确定删除分类 "${cat.name}" 吗？\n该分类下的待办不会删除，会变为"未分类"。`,
+              async () => {
+                try {
+                  await this.plugin.categoryService.delete(cat.id);
+                  this.editing.delete(cat.id);
+                  await this.reload();
+                  this.onChange?.();
+                  this.renderList();
+                } catch (e) {
+                  new Notice(e instanceof Error ? e.message : String(e));
+                }
+              },
+              undefined,
+              true,
+            ).open();
+          }),
       );
     });
 
@@ -172,22 +188,25 @@ export class CategoryModal extends Modal {
       picker.setValue(newColor).onChange((v) => (newColor = v));
     });
     addSetting.addButton((btn) =>
-      btn.setButtonText('添加').setCta().onClick(async () => {
-        const name = newName.trim();
-        if (!name) {
-          new Notice('请输入分类名称');
-          return;
-        }
-        try {
-          await this.plugin.categoryService.create({ name, color: newColor });
-          newName = '';
-          await this.reload();
-          this.onChange?.();
-          this.renderList();
-        } catch (e) {
-          new Notice(e instanceof Error ? e.message : String(e));
-        }
-      }),
+      btn
+        .setButtonText('添加')
+        .setCta()
+        .onClick(async () => {
+          const name = newName.trim();
+          if (!name) {
+            new Notice('请输入分类名称');
+            return;
+          }
+          try {
+            await this.plugin.categoryService.create({ name, color: newColor });
+            newName = '';
+            await this.reload();
+            this.onChange?.();
+            this.renderList();
+          } catch (e) {
+            new Notice(e instanceof Error ? e.message : String(e));
+          }
+        }),
     );
   }
 

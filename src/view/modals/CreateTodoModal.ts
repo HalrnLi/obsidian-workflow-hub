@@ -11,6 +11,7 @@ export interface CreateTodoData {
   status: TodoStatus;
   categoryId: string | null;
   projectId: string | null;
+  responsiblePerson: string;
 }
 
 /** 创建/编辑待办弹窗 */
@@ -45,6 +46,7 @@ export class CreateTodoModal extends Modal {
       status: existing?.status ?? 'todo',
       categoryId: existing?.categoryId ?? plugin.settings.defaultCategoryId ?? null,
       projectId: existing?.projectId ?? this.defaultProjectId ?? null,
+      responsiblePerson: existing?.responsiblePerson ?? plugin.todoService.getCurrentResponsiblePerson() ?? '',
     };
   }
 
@@ -66,12 +68,24 @@ export class CreateTodoModal extends Modal {
         .onChange((v) => (this.data.content = v)),
     );
 
+    // 负责人（只读显示，由顶部选择器决定）
+    if (this.data.responsiblePerson) {
+      const personSetting = new Setting(contentEl).setName('负责人');
+      personSetting.descEl.setText(this.data.responsiblePerson);
+    }
+
     new Setting(contentEl).setName('链接').addText((text) =>
-      text.setPlaceholder('https://...').setValue(this.data.link).onChange((v) => (this.data.link = v)),
+      text
+        .setPlaceholder('https://...')
+        .setValue(this.data.link)
+        .onChange((v) => (this.data.link = v)),
     );
 
     new Setting(contentEl).setName('截止日期').addText((text) =>
-      text.setPlaceholder('YYYY-MM-DD').setValue(this.data.dueDate).onChange((v) => (this.data.dueDate = v)),
+      text
+        .setPlaceholder('YYYY-MM-DD')
+        .setValue(this.data.dueDate)
+        .onChange((v) => (this.data.dueDate = v)),
     );
 
     new Setting(contentEl).setName('优先级').addDropdown((dd) => {

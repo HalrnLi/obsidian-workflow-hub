@@ -10,3 +10,4 @@ export { CategoryModal } from './CategoryModal';
 export { TestPlanModal } from './TestPlanModal';
 export { ProjectInfoModal } from './ProjectInfoModal';
 export { ProjectTodosModal } from './ProjectTodosModal';
+export { ResponsiblePersonModal } from './ResponsiblePersonModal';

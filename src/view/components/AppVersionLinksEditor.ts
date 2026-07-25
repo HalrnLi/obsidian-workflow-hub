@@ -79,63 +79,57 @@ export class AppVersionLinksEditor {
     let versionDropdown: DropdownComponent;
 
     // APP 下拉
-    new Setting(addEl)
-      .setClass('avm-links-editor-add-app')
-      .addDropdown((dropdown) => {
-        dropdown.addOption('', '选择 APP...');
-        this.apps.forEach((app) => dropdown.addOption(app.id, app.name));
-        dropdown.onChange((value) => {
-          selectedAppId = value;
-          selectedVersionId = '';
-          // 重置版本下拉
-          if (versionDropdown) {
-            versionDropdown.selectEl.empty();
-            versionDropdown.addOption('', '选择版本...');
-            if (value) {
-              const appVersions = this.versions.filter((v) => v.appId === value && !v.isArchived);
-              appVersions.forEach((v) => versionDropdown.addOption(v.id, v.versionNumber));
-              versionDropdown.setDisabled(false);
-            } else {
-              versionDropdown.setDisabled(true);
-            }
-            versionDropdown.setValue('');
+    new Setting(addEl).setClass('avm-links-editor-add-app').addDropdown((dropdown) => {
+      dropdown.addOption('', '选择 APP...');
+      this.apps.forEach((app) => dropdown.addOption(app.id, app.name));
+      dropdown.onChange((value) => {
+        selectedAppId = value;
+        selectedVersionId = '';
+        // 重置版本下拉
+        if (versionDropdown) {
+          versionDropdown.selectEl.empty();
+          versionDropdown.addOption('', '选择版本...');
+          if (value) {
+            const appVersions = this.versions.filter((v) => v.appId === value && !v.isArchived);
+            appVersions.forEach((v) => versionDropdown.addOption(v.id, v.versionNumber));
+            versionDropdown.setDisabled(false);
+          } else {
+            versionDropdown.setDisabled(true);
           }
-        });
+          versionDropdown.setValue('');
+        }
       });
+    });
 
     // 版本下拉
-    new Setting(addEl)
-      .setClass('avm-links-editor-add-version')
-      .addDropdown((dropdown) => {
-        dropdown.addOption('', '选择版本...');
-        dropdown.setDisabled(true);
-        dropdown.onChange((value) => {
-          selectedVersionId = value;
-        });
-        versionDropdown = dropdown;
+    new Setting(addEl).setClass('avm-links-editor-add-version').addDropdown((dropdown) => {
+      dropdown.addOption('', '选择版本...');
+      dropdown.setDisabled(true);
+      dropdown.onChange((value) => {
+        selectedVersionId = value;
       });
+      versionDropdown = dropdown;
+    });
 
     // 添加按钮
-    new Setting(addEl)
-      .setClass('avm-links-editor-add-btn')
-      .addButton((btn) => {
-        btn
-          .setIcon('plus')
-          .setButtonText('添加')
-          .onClick(() => {
-            if (!selectedAppId || !selectedVersionId) {
-              new Notice('请选择 APP 和版本');
-              return;
-            }
-            if (this.links.some((l) => l.appId === selectedAppId)) {
-              new Notice('该项目已关联此 APP，请先移除后再添加');
-              return;
-            }
-            this.links.push({ appId: selectedAppId, versionId: selectedVersionId });
-            this.render();
-            this.onChange?.();
-          });
-      });
+    new Setting(addEl).setClass('avm-links-editor-add-btn').addButton((btn) => {
+      btn
+        .setIcon('plus')
+        .setButtonText('添加')
+        .onClick(() => {
+          if (!selectedAppId || !selectedVersionId) {
+            new Notice('请选择 APP 和版本');
+            return;
+          }
+          if (this.links.some((l) => l.appId === selectedAppId)) {
+            new Notice('该项目已关联此 APP，请先移除后再添加');
+            return;
+          }
+          this.links.push({ appId: selectedAppId, versionId: selectedVersionId });
+          this.render();
+          this.onChange?.();
+        });
+    });
   }
 
   getLinks(): ProjectLink[] {

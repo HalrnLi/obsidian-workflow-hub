@@ -81,10 +81,16 @@ export class AppVersionManageView {
       e.preventDefault();
       const menu = new Menu();
       menu.addItem((item) => {
-        item.setTitle('重命名').setIcon('pencil').onClick(() => this.showRenameAppModal(app));
+        item
+          .setTitle('重命名')
+          .setIcon('pencil')
+          .onClick(() => this.showRenameAppModal(app));
       });
       menu.addItem((item) => {
-        item.setTitle('删除').setIcon('trash').onClick(() => this.confirmDeleteApp(app));
+        item
+          .setTitle('删除')
+          .setIcon('trash')
+          .onClick(() => this.confirmDeleteApp(app));
       });
       menu.showAtMouseEvent(e);
     });
@@ -144,9 +150,7 @@ export class AppVersionManageView {
 
     // 组件版本
     const componentsCell = row.createDiv({ cls: 'avm-avm-td avm-avm-td-components' });
-    const componentVersions = [version.bllVersion, version.ippVersion, version.webVersion]
-      .filter(Boolean)
-      .join(' / ');
+    const componentVersions = [version.bllVersion, version.ippVersion, version.webVersion].filter(Boolean).join(' / ');
     componentsCell.createSpan({
       cls: 'avm-avm-component-text',
       text: componentVersions || '—',
@@ -176,29 +180,44 @@ export class AppVersionManageView {
       const menu = new Menu();
       if (version.isArchived) {
         menu.addItem((item) => {
-          item.setTitle('取消归档').setIcon('archive').onClick(async () => {
-            await this.plugin.dataService.unarchiveVersion(version.id);
-            this.onRefresh();
-          });
+          item
+            .setTitle('取消归档')
+            .setIcon('archive')
+            .onClick(async () => {
+              await this.plugin.dataService.unarchiveVersion(version.id);
+              this.onRefresh();
+            });
         });
       } else {
         menu.addItem((item) => {
-          item.setTitle('归档').setIcon('archive').onClick(async () => {
-            await this.plugin.dataService.archiveVersion(version.id);
-            this.onRefresh();
-          });
+          item
+            .setTitle('归档')
+            .setIcon('archive')
+            .onClick(async () => {
+              await this.plugin.dataService.archiveVersion(version.id);
+              this.onRefresh();
+            });
         });
       }
       menu.addSeparator();
       menu.addItem((item) => {
-        item.setTitle('编辑').setIcon('pencil').onClick(() => this.showEditVersionModal(version, app));
+        item
+          .setTitle('编辑')
+          .setIcon('pencil')
+          .onClick(() => this.showEditVersionModal(version, app));
       });
       menu.addItem((item) => {
-        item.setTitle('查看详情').setIcon('eye').onClick(() => this.openDetailPanel(version, app));
+        item
+          .setTitle('查看详情')
+          .setIcon('eye')
+          .onClick(() => this.openDetailPanel(version, app));
       });
       menu.addSeparator();
       menu.addItem((item) => {
-        item.setTitle('删除').setIcon('trash').onClick(() => this.confirmDeleteVersion(version, app));
+        item
+          .setTitle('删除')
+          .setIcon('trash')
+          .onClick(() => this.confirmDeleteVersion(version, app));
       });
       menu.showAtMouseEvent(e);
     });
@@ -240,9 +259,7 @@ export class AppVersionManageView {
     this.renderDetailRow(panelBody, '所属 APP', app.name);
 
     // 组件版本
-    const componentText = [version.bllVersion, version.ippVersion, version.webVersion]
-      .filter(Boolean)
-      .join(' / ');
+    const componentText = [version.bllVersion, version.ippVersion, version.webVersion].filter(Boolean).join(' / ');
     this.renderDetailRow(panelBody, '组件版本', componentText || '—');
 
     // 更新内容
@@ -280,11 +297,11 @@ export class AppVersionManageView {
 
   private getProgressColor(progress: string): string {
     const colors: Record<string, string> = {
-      '待规划': '#94a3b8',
-      '开发中': '#3b82f6',
-      '测试中': '#f59e0b',
-      '已上线': '#10b981',
-      '已归档': '#6b7280',
+      待规划: '#94a3b8',
+      开发中: '#3b82f6',
+      测试中: '#f59e0b',
+      已上线: '#10b981',
+      已归档: '#6b7280',
     };
     return colors[progress] || '#94a3b8';
   }

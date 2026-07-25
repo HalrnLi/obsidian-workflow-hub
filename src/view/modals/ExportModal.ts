@@ -43,7 +43,11 @@ export class ExportModal extends Modal {
         try {
           if (this.format === 'xlsx') {
             const buffer = await this.importExportService.exportToExcel(this.projects, this.versions, this.apps);
-            this.downloadFile(buffer, 'projects.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            this.downloadFile(
+              buffer,
+              'projects.xlsx',
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            );
           } else {
             const csv = await this.importExportService.exportToCSV(this.projects, this.versions, this.apps);
             this.downloadFile(csv, 'projects.csv', 'text/csv');

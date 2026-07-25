@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync, unlinkSync, readdirSync, statSync, mkdirSync } from 'fs';
-import { join, isAbsolute } from 'path';
+import { join } from 'path';
 import { normalizePath, TFile } from 'obsidian';
 import AppVersionManagerPlugin from '../main';
 import { Category, CreateCategoryInput, ConcurrencyConflictError } from '../types';
@@ -34,21 +34,20 @@ export class CategoryService {
     return this.plugin.settings.dataPath || 'workflow-hub';
   }
 
-  private isAbsolutePath(): boolean {
-    const path = this.getDataPath();
-    return isAbsolute(path) || /^[A-Za-z]:/.test(path);
-  }
-
   private getCategoriesFolder(): string {
     const dataPath = this.getDataPath();
-    return this.isAbsolutePath() ? join(dataPath, 'categories') : `${dataPath}/categories`;
+    return this.plugin.dataService.pathResolver.isAbsolutePath()
+      ? this.plugin.dataService.pathResolver.joinPath(dataPath, 'categories')
+      : `${dataPath}/categories`;
   }
 
   private getCategoryFilePath(category: Pick<Category, 'id' | 'name'>): string {
     const folder = this.getCategoriesFolder();
     const name = sanitizeFileName(category.name || 'unnamed');
     const fileName = `${name}__${category.id}.md`;
-    return this.isAbsolutePath() ? join(folder, fileName) : normalizePath(`${folder}/${fileName}`);
+    return this.plugin.dataService.pathResolver.isAbsolutePath()
+      ? this.plugin.dataService.pathResolver.joinPath(folder, fileName)
+      : normalizePath(`${folder}/${fileName}`);
   }
 
   // ---------- 加载 ----------
@@ -100,8 +99,7 @@ export class CategoryService {
       throw new Error(`分类名称已存在: ${input.name}`);
     }
     const now = nowISO();
-    const sortOrder =
-      input.sortOrder ?? (existing.length > 0 ? Math.max(...existing.map((c) => c.sortOrder)) + 1 : 0);
+    const sortOrder = input.sortOrder ?? (existing.length > 0 ? Math.max(...existing.map((c) => c.sortOrder)) + 1 : 0);
     const category: Category = {
       id: generateId(),
       name: input.name,
@@ -173,7 +171,7 @@ export class CategoryService {
   private async readAllFromDisk(): Promise<Category[]> {
     const folder = this.getCategoriesFolder();
     const categories: Category[] = [];
-    if (this.isAbsolutePath()) {
+    if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
       if (!existsSync(folder)) return [];
       for (const item of readdirSync(folder)) {
         const full = join(folder, item);
@@ -234,7 +232,7 @@ export class CategoryService {
     const filePath = this.getCategoryFilePath(category);
     const content = this.serializeCategory(category);
     await this.ensureFolder();
-    if (this.isAbsolutePath()) {
+    if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
       writeFileSync(filePath, content, 'utf-8');
     } else {
       const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
@@ -245,7 +243,7 @@ export class CategoryService {
 
   private async deleteCategoryFile(category: Pick<Category, 'id' | 'name'>): Promise<void> {
     const filePath = this.getCategoryFilePath(category);
-    if (this.isAbsolutePath()) {
+    if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
       if (existsSync(filePath)) unlinkSync(filePath);
     } else {
       const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
@@ -255,7 +253,7 @@ export class CategoryService {
 
   private async ensureFolder(): Promise<void> {
     const folder = this.getCategoriesFolder();
-    if (this.isAbsolutePath()) {
+    if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
       if (!existsSync(folder)) mkdirSync(folder, { recursive: true });
     } else {
       if (!this.plugin.app.vault.getAbstractFileByPath(folder)) {

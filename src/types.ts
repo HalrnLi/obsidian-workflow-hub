@@ -124,6 +124,8 @@ export interface Todo {
   categoryId: string | null;
   /** 关联项目 ID（null=未绑定项目，独立待办） */
   projectId: string | null;
+  /** 负责人（为空字符串表示未分配，用于多人场景数据隔离） */
+  responsiblePerson: string;
   /** 完成时间（status=done 时记录，否则空字符串） */
   completedAt: string;
   createdAt: string;
@@ -140,6 +142,7 @@ export interface CreateTodoInput {
   pinned?: boolean;
   categoryId?: string | null;
   projectId?: string | null;
+  responsiblePerson?: string;
 }
 
 /** 待办分类 */
@@ -408,7 +411,7 @@ export function isProjectInPreRelease(project: Project, preReleaseRound: string,
   } else {
     // B2+ 为预发布轮次：以上一轮系统测试日期为触发点
     const prevKey = PREVIOUS_SYSTEM_TEST_MAP[preReleaseRound];
-    triggerDate = prevKey ? (project as any)[prevKey] as string : undefined;
+    triggerDate = prevKey ? ((project as any)[prevKey] as string) : undefined;
   }
 
   if (!triggerDate) return false;

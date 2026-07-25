@@ -20,7 +20,12 @@ import { EditProjectModal } from './EditProjectModal';
 import { TestPlanModal } from './modals/TestPlanModal';
 import { ProjectInfoModal } from './modals/ProjectInfoModal';
 import { ProjectTodosModal } from './modals/ProjectTodosModal';
-import { sortProjectsByPriority, isProjectHighlighted, checkOverdue, calculateOverdueStats } from '../utils/projectSorting';
+import {
+  sortProjectsByPriority,
+  isProjectHighlighted,
+  checkOverdue,
+  calculateOverdueStats,
+} from '../utils/projectSorting';
 import { openExternalLink } from '../utils/linkUtils';
 
 interface FilterState {
@@ -265,7 +270,9 @@ export class DualPaneView {
     if (project.features) {
       const featuresEl = item.createDiv({ cls: 'avm-project-features' });
       featuresEl.createEl('strong', { text: '特性:' });
-      featuresEl.createSpan({ text: project.features.substring(0, 100) + (project.features.length > 100 ? '...' : '') });
+      featuresEl.createSpan({
+        text: project.features.substring(0, 100) + (project.features.length > 100 ? '...' : ''),
+      });
     }
 
     if (project.spec) {
@@ -324,7 +331,9 @@ export class DualPaneView {
     if (project.requirements) {
       const req = item.createDiv({ cls: 'avm-project-requirements' });
       req.createEl('strong', { text: '需求:' });
-      req.createSpan({ text: project.requirements.substring(0, 100) + (project.requirements.length > 100 ? '...' : '') });
+      req.createSpan({
+        text: project.requirements.substring(0, 100) + (project.requirements.length > 100 ? '...' : ''),
+      });
     }
 
     item.addEventListener('contextmenu', (e) => {
@@ -402,14 +411,22 @@ export class DualPaneView {
   }
 
   private showEditProjectModal(project: Project) {
-    new EditProjectModal(this.plugin.app, project, this.apps, this.versions, this.plugin.settings.progressStages, this.plugin.settings.responsiblePersons, async (data) => {
-      try {
-        await this.plugin.dataService.updateProject(project.id, data, project.version);
-        this.onRefresh();
-      } catch (error) {
-        new Notice(error instanceof Error ? error.message : String(error));
-      }
-    }).open();
+    new EditProjectModal(
+      this.plugin.app,
+      project,
+      this.apps,
+      this.versions,
+      this.plugin.settings.progressStages,
+      this.plugin.settings.responsiblePersons,
+      async (data) => {
+        try {
+          await this.plugin.dataService.updateProject(project.id, data, project.version);
+          this.onRefresh();
+        } catch (error) {
+          new Notice(error instanceof Error ? error.message : String(error));
+        }
+      },
+    ).open();
   }
 
   private showTestPlanModal(project: Project) {

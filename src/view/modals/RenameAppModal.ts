@@ -19,7 +19,9 @@ export class RenameAppModal extends Modal {
 
     let newName = this.currentName;
 
-    new Setting(contentEl).setName('APP名称').addText((text) => text.setValue(this.currentName).onChange((value) => (newName = value)));
+    new Setting(contentEl)
+      .setName('APP名称')
+      .addText((text) => text.setValue(this.currentName).onChange((value) => (newName = value)));
 
     createSaveButtons(
       contentEl,
