@@ -1,9 +1,9 @@
-import { ItemView, WorkspaceLeaf, App as ObsidianApp, Setting, ButtonComponent, Notice, Menu, TFile } from 'obsidian';
+import { ItemView, WorkspaceLeaf, App as ObsidianApp, ButtonComponent, Notice, Menu } from 'obsidian';
 import AppVersionManagerPlugin from '../main';
 import { App, Version, Project, ProjectProgress, SavedFilter, getProgressOrder, getProgressColors } from '../types';
-import { DualPaneView } from './DualPaneView';
 import { TableView } from './TableView';
 import { TodoTabView } from './TodoTabView';
+import { AppVersionManageView } from './AppVersionManageView';
 import { ConfirmModal } from './ConfirmModal';
 import { EditProjectModal } from './EditProjectModal';
 import { TestPlanModal } from './modals/TestPlanModal';
@@ -25,23 +25,23 @@ import type { CreateProjectData } from './modals';
 
 export const VIEW_TYPE_APP_VERSION_MANAGER = 'app-version-manager-view';
 
-type ViewType = 'dual' | 'table';
+type MainTab = 'projects' | 'app-version' | 'todos';
 
 export class AppVersionManagerView extends ItemView {
   plugin: AppVersionManagerPlugin;
   apps: App[] = [];
   versions: Version[] = [];
   projects: Project[] = [];
-  /** 全量项目（不受 version 过滤影响），用于归档视图等需要跨 version 查询的场景 */
-  allProjects: Project[] = [];
-  selectedAppId: string | null = null;
-  selectedVersionId: string | null = null;
-  currentView: ViewType = 'dual';
-  currentTab: 'projects' | 'todos' = 'projects';
+  currentTab: MainTab = 'projects';
   /** 项目子 Tab：进行中 / 已发布 */
   projectSubTab: 'active' | 'archived' = 'active';
   savedFilters: SavedFilter[] = [];
-  currentFilter: { progress: ProjectProgress | null; keyword: string } = { progress: null, keyword: '' };
+  currentFilter: { progress: ProjectProgress | null; keyword: string; appId: string | null; versionId: string | null } = {
+    progress: null,
+    keyword: '',
+    appId: null,
+    versionId: null,
+  };
   importExportService: ImportExportService;
   private todoTabView: TodoTabView | null = null;
   private detailProjectId: string | null = null;
@@ -101,20 +101,8 @@ export class AppVersionManagerView extends ItemView {
 
   private async loadData() {
     this.apps = await this.plugin.dataService.getAllApps();
-
-    if (this.apps.length > 0) {
-      if (!this.selectedAppId || !this.apps.find((a) => a.id === this.selectedAppId)) {
-        this.selectedAppId = this.plugin.settings.defaultAppId || this.apps[0].id;
-      }
-
-      this.versions = await this.plugin.dataService.getVersionsByAppId(this.selectedAppId);
-      // 全量项目（不受 version 过滤影响），用于归档视图等需要跨 version 查询的场景
-      const allProjects = await this.plugin.dataService.getAllProjects();
-      this.allProjects = allProjects;
-      // 只保留当前 app 关联的 projects（用 Set 过滤，避免 O(n*m) 的 .includes()）
-      const versionIds = new Set(this.versions.map((v) => v.id));
-      this.projects = allProjects.filter((p) => versionIds.has(p.versionId));
-    }
+    this.versions = await this.plugin.dataService.getAllVersions();
+    this.projects = await this.plugin.dataService.getAllProjects();
   }
 
   private async loadSavedFilters() {
@@ -129,15 +117,13 @@ export class AppVersionManagerView extends ItemView {
   }
 
   handleCreateVersion() {
-    if (this.selectedAppId) {
-      this.showCreateVersionModal();
-    }
+    // 触发 APP/版本管理 Tab 中的创建版本事件
+    this.currentTab = 'app-version';
+    this.render();
   }
 
   handleCreateProject() {
-    if (this.selectedVersionId) {
-      this.showCreateProjectModal();
-    }
+    this.showCreateProjectModal();
   }
 
   async getTodoStats(projectId: string): Promise<{ total: number; completed: number; overdue: number }> {
@@ -149,7 +135,7 @@ export class AppVersionManagerView extends ItemView {
     }
   }
 
-  /** 打开/切换项目详情面板（替代原 TodoSidePanel 侧边弹窗） */
+  /** 打开/切换项目详情面板 */
   onOpenProjectDetail(projectId: string, _projectName: string): void {
     this.detailProjectId = projectId;
     this.renderMainView();
@@ -186,8 +172,8 @@ export class AppVersionManagerView extends ItemView {
     const tabBar = this.headerEl?.querySelector('.avm-tab-bar');
     if (!tabBar) return;
     const tabs = tabBar.querySelectorAll('.avm-tab');
+    const keys: MainTab[] = ['projects', 'app-version', 'todos'];
     tabs.forEach((tab, i) => {
-      const keys: Array<'projects' | 'todos'> = ['projects', 'todos'];
       const isActive = keys[i] === this.currentTab;
       tab.classList.toggle('avm-tab-active', isActive);
     });
@@ -196,10 +182,11 @@ export class AppVersionManagerView extends ItemView {
   private renderHeader() {
     this.headerEl.empty();
 
-    // 主 Tab 切换栏：项目 | 待办
+    // 主 Tab 切换栏：项目 | APP/版本管理 | 待办
     const tabBar = this.headerEl.createDiv({ cls: 'avm-tab-bar' });
-    const tabs: { key: 'projects' | 'todos'; label: string }[] = [
+    const tabs: { key: MainTab; label: string }[] = [
       { key: 'projects', label: '项目' },
+      { key: 'app-version', label: 'APP/版本' },
       { key: 'todos', label: '待办' },
     ];
     tabs.forEach(({ key, label }) => {
@@ -208,14 +195,15 @@ export class AppVersionManagerView extends ItemView {
       tabEl.addEventListener('click', () => {
         if (this.currentTab !== key) {
           this.currentTab = key;
+          this.detailProjectId = null;
           this.renderHeader();
           this.renderMainView();
         }
       });
     });
 
-    // 待办 Tab 不需要应用选择器和视图切换器
-    if (this.currentTab === 'todos') {
+    // 待办 Tab 和 APP/版本 Tab 不需要项目筛选器
+    if (this.currentTab === 'todos' || this.currentTab === 'app-version') {
       return;
     }
 
@@ -238,80 +226,22 @@ export class AppVersionManagerView extends ItemView {
       });
     });
 
-    // 已发布子 Tab：仅显示搜索栏，隐藏 APP 选择器/视图切换/筛选器等
+    // 已发布子 Tab：仅显示搜索栏
     if (this.projectSubTab === 'archived') {
       this.renderArchivedSearchBar();
       return;
     }
 
+    // 进行中子 Tab：筛选栏
+    this.renderProjectFilterBar();
+  }
+
+  /** 进行中子 Tab 的筛选栏 */
+  private renderProjectFilterBar(): void {
     const topBar = this.headerEl.createDiv({ cls: 'avm-top-bar' });
+    const filterBar = topBar.createDiv({ cls: 'avm-filter-bar' });
 
-    const appSelector = topBar.createDiv({ cls: 'avm-app-selector' });
-    const select = appSelector.createEl('select', { cls: 'avm-select' });
-
-    this.apps.forEach((app) => {
-      const option = select.createEl('option', { value: app.id, text: app.name });
-      if (app.id === this.selectedAppId) {
-        option.selected = true;
-      }
-    });
-
-    select.addEventListener('change', async (e) => {
-      this.selectedAppId = (e.target as HTMLSelectElement).value;
-      this.selectedVersionId = null;
-      await this.refresh();
-    });
-
-    const appActions = appSelector.createDiv({ cls: 'avm-app-actions' });
-
-    new ButtonComponent(appActions)
-      .setIcon('plus')
-      .setTooltip('新建APP')
-      .onClick(() => this.showCreateAppModal());
-
-    new ButtonComponent(appActions)
-      .setIcon('pencil')
-      .setTooltip('重命名APP')
-      .setDisabled(!this.selectedAppId)
-      .onClick(() => {
-        if (this.selectedAppId) {
-          this.showRenameAppModal();
-        }
-      });
-
-    new ButtonComponent(appActions)
-      .setIcon('trash')
-      .setTooltip('删除APP')
-      .setDisabled(!this.selectedAppId)
-      .onClick(() => {
-        if (this.selectedAppId) {
-          this.confirmDeleteApp();
-        }
-      });
-
-    const viewSwitcher = topBar.createDiv({ cls: 'avm-view-switcher' });
-
-    const viewTypes: { type: ViewType; label: string; icon: string }[] = [
-      { type: 'dual', label: '双栏视图', icon: 'layout' },
-      { type: 'table', label: '表格视图', icon: 'table' },
-    ];
-
-    viewTypes.forEach(({ type, label, icon }) => {
-      const btn = new ButtonComponent(viewSwitcher)
-        .setIcon(icon)
-        .setTooltip(label)
-        .onClick(() => {
-          this.currentView = type;
-          this.renderHeader();
-          this.renderMainView();
-        });
-      if (this.currentView === type) {
-        btn.setClass('avm-view-btn-active');
-      }
-    });
-
-    const filterBar = this.headerEl.createDiv({ cls: 'avm-filter-bar' });
-
+    // 搜索框
     const searchInput = filterBar.createEl('input', {
       cls: 'avm-search-input',
       attr: { type: 'text', placeholder: '搜索项目、项目经理、负责人、项目需求...' },
@@ -327,6 +257,41 @@ export class AppVersionManagerView extends ItemView {
       }, 180);
     });
 
+    // APP 过滤
+    const appFilter = filterBar.createEl('select', { cls: 'avm-select' });
+    appFilter.createEl('option', { value: '', text: '全部 APP' });
+    this.apps.forEach((app) => {
+      const option = appFilter.createEl('option', { value: app.id, text: app.name });
+      if (app.id === this.currentFilter.appId) {
+        option.selected = true;
+      }
+    });
+    appFilter.addEventListener('change', (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      this.currentFilter.appId = value || null;
+      this.currentFilter.versionId = null; // 切换 APP 时重置版本过滤
+      this.renderMainView();
+    });
+
+    // 版本过滤（仅显示已选 APP 下的版本）
+    const versionFilter = filterBar.createEl('select', { cls: 'avm-select' });
+    versionFilter.createEl('option', { value: '', text: '全部版本' });
+    const filteredVersions = this.currentFilter.appId
+      ? this.versions.filter((v) => v.appId === this.currentFilter.appId && !v.isArchived)
+      : this.versions.filter((v) => !v.isArchived);
+    filteredVersions.forEach((version) => {
+      const option = versionFilter.createEl('option', { value: version.id, text: version.versionNumber });
+      if (version.id === this.currentFilter.versionId) {
+        option.selected = true;
+      }
+    });
+    versionFilter.addEventListener('change', (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      this.currentFilter.versionId = value || null;
+      this.renderMainView();
+    });
+
+    // 进度过滤
     const progressFilter = filterBar.createEl('select', { cls: 'avm-select' });
     progressFilter.createEl('option', { value: '', text: '全部进度' });
     const progressOrder = getProgressOrder(this.plugin.settings.progressStages);
@@ -387,6 +352,11 @@ export class AppVersionManagerView extends ItemView {
     const actionButtons = filterBar.createDiv({ cls: 'avm-action-buttons' });
 
     new ButtonComponent(actionButtons)
+      .setIcon('plus')
+      .setTooltip('新建项目')
+      .onClick(() => this.showCreateProjectModal());
+
+    new ButtonComponent(actionButtons)
       .setIcon('download')
       .setTooltip('导出数据')
       .onClick(() => this.showExportModal());
@@ -424,17 +394,29 @@ export class AppVersionManagerView extends ItemView {
   private renderMainView() {
     this.mainEl.empty();
     this.mainEl.removeClass('avm-archived-main');
-    // 设置 data-tab 属性，供 CSS 针对不同 Tab 做布局
     this.mainEl.setAttribute('data-tab', this.currentTab);
 
+    // === APP/版本管理 Tab ===
+    if (this.currentTab === 'app-version') {
+      new AppVersionManageView(
+        this.mainEl,
+        this.plugin,
+        this.apps,
+        this.versions,
+        () => this.refresh(),
+      );
+      return;
+    }
+
+    // === 待办 Tab ===
     if (this.currentTab === 'todos') {
       this.todoTabView = new TodoTabView(this.mainEl, this.plugin, () => this.refresh());
       this.todoTabView.render();
       return;
     }
 
-    // 项目 Tab：已发布子 Tab — 有选中项目时右侧滑出详情面板
-    if (this.currentTab === 'projects' && this.projectSubTab === 'archived') {
+    // === 项目 Tab：已发布子 Tab ===
+    if (this.projectSubTab === 'archived') {
       if (this.detailProjectId) {
         this.renderArchivedWithDetail();
       } else {
@@ -443,45 +425,24 @@ export class AppVersionManagerView extends ItemView {
       return;
     }
 
-    // 项目 Tab：进行中子 Tab - 如果有选中的项目，右侧滑出详情面板
+    // === 项目 Tab：进行中子 Tab ===
     if (this.detailProjectId) {
       this.renderProjectWithDetail();
       return;
     }
 
-    const appFilteredProjects = this.getFilteredProjects({ versionId: '' });
-    const filteredVersions = this.selectedAppId ? this.versions.filter((v) => v.appId === this.selectedAppId) : [];
+    const filteredProjects = this.getFilteredProjects();
 
-    if (this.currentView === 'dual') {
-      new DualPaneView(
-        this.mainEl,
-        this.plugin,
-        this.apps,
-        filteredVersions,
-        appFilteredProjects,
-        this.selectedVersionId,
-        (versionId) => {
-          this.selectedVersionId = versionId;
-          this.render();
-        },
-        () => this.showCreateVersionModal(),
-        () => this.showCreateProjectModal(),
-        () => this.refresh(),
-        (projectId) => this.getTodoStats(projectId),
-        (projectId, projectName) => this.onOpenProjectDetail(projectId, projectName),
-      );
-    } else if (this.currentView === 'table') {
-      new TableView(
-        this.mainEl,
-        this.plugin,
-        appFilteredProjects,
-        filteredVersions,
-        this.apps,
-        () => this.refresh(),
-        (projectId) => this.getTodoStats(projectId),
-        (projectId, projectName) => this.onOpenProjectDetail(projectId, projectName),
-      );
-    }
+    new TableView(
+      this.mainEl,
+      this.plugin,
+      filteredProjects,
+      this.versions,
+      this.apps,
+      () => this.refresh(),
+      (projectId) => this.getTodoStats(projectId),
+      (projectId, projectName) => this.onOpenProjectDetail(projectId, projectName),
+    );
   }
 
   /** 渲染项目列表 + 右侧滑出详情面板 */
@@ -491,98 +452,26 @@ export class AppVersionManagerView extends ItemView {
 
     const wrapper = this.mainEl.createDiv({ cls: 'avm-project-with-detail' });
 
-    // 左侧：项目列表（独立双栏容器）
     const listEl = wrapper.createDiv({ cls: 'avm-project-list-pane' });
-    const viewContainer = listEl.createDiv({ cls: 'avm-detail-view-container' });
 
-    const appFilteredProjects = this.getFilteredProjects({ versionId: '' });
-    const filteredVersions = this.selectedAppId ? this.versions.filter((v) => v.appId === this.selectedAppId) : [];
+    const filteredProjects = this.getFilteredProjects();
 
-    if (this.currentView === 'dual') {
-      // 双栏视图下显示详情时，保留版本列表+项目卡片，详情作为第三栏滑出
-      new DualPaneView(
-        viewContainer,
-        this.plugin,
-        this.apps,
-        filteredVersions,
-        appFilteredProjects,
-        this.selectedVersionId,
-        (versionId) => {
-          this.selectedVersionId = versionId;
-          this.render();
-        },
-        () => this.showCreateVersionModal(),
-        () => this.showCreateProjectModal(),
-        () => this.refresh(),
-        (projectId) => this.getTodoStats(projectId),
-        (projectId, projectName) => this.onOpenProjectDetail(projectId, projectName),
-      );
-    } else if (this.currentView === 'table') {
-      new TableView(
-        listEl,
-        this.plugin,
-        appFilteredProjects,
-        filteredVersions,
-        this.apps,
-        () => this.refresh(),
-        (projectId) => this.getTodoStats(projectId),
-        (projectId, projectName) => this.onOpenProjectDetail(projectId, projectName),
-      );
-    }
+    new TableView(
+      listEl,
+      this.plugin,
+      filteredProjects,
+      this.versions,
+      this.apps,
+      () => this.refresh(),
+      (projectId) => this.getTodoStats(projectId),
+      (projectId, projectName) => this.onOpenProjectDetail(projectId, projectName),
+    );
 
-    // 右侧：项目详情面板
     const detailEl = wrapper.createDiv({ cls: 'avm-project-detail-pane' });
     const project = this.projects.find((p) => p.id === projectId);
     if (project) {
       this.renderProjectDetailContent(detailEl, project);
     }
-  }
-
-  /** 仅渲染项目卡片（无版本列表，用于详情模式下的双栏视图） */
-  private renderProjectCardsOnly(container: HTMLElement, projects: Project[]): void {
-    const header = container.createDiv({ cls: 'avm-pane-header' });
-    header.createEl('h3', { text: '项目列表' });
-    if (this.selectedVersionId) {
-      new ButtonComponent(header).setIcon('plus').setTooltip('新建项目').onClick(() => this.showCreateProjectModal());
-    }
-
-    const projectList = container.createDiv({ cls: 'avm-project-list' });
-
-    if (!this.selectedVersionId) {
-      projectList.createDiv({ cls: 'avm-empty-state', text: '请选择一个版本查看项目' });
-      return;
-    }
-
-    const versionProjects = projects.filter((p) => p.versionId === this.selectedVersionId);
-    if (versionProjects.length === 0) {
-      projectList.createDiv({ cls: 'avm-empty-state', text: '暂无项目，点击右上角添加' });
-      return;
-    }
-
-    const sortedProjects = sortProjectsByPriority(versionProjects, this.plugin.settings.progressStages);
-    sortedProjects.forEach((project) => {
-      const isActive = project.id === this.detailProjectId;
-      const item = projectList.createDiv({ cls: 'avm-project-item' + (isActive ? ' avm-project-item-active' : '') });
-
-      if (isProjectHighlighted(project, this.plugin.settings.overdueWarningDays)) {
-        item.addClass('avm-highlighted-row');
-      }
-
-      const headerRow = item.createDiv({ cls: 'avm-project-header' });
-      const nameEl = headerRow.createDiv({ cls: 'avm-project-name', text: project.name });
-      nameEl.addEventListener('click', () => this.onOpenProjectDetail(project.id, project.name));
-
-      const progressColors = getProgressColors(this.plugin.settings.progressStages);
-      const progressBadge = headerRow.createDiv({ cls: 'avm-progress-badge', text: project.progress });
-      progressBadge.style.backgroundColor = progressColors[project.progress] || '#64748b';
-
-      if (project.features) {
-        item.createDiv({ cls: 'avm-project-features', text: project.features.substring(0, 60) + (project.features.length > 60 ? '...' : '') });
-      }
-
-      const meta = item.createDiv({ cls: 'avm-project-meta' });
-      if (project.manager) meta.createSpan({ cls: 'avm-meta-item', text: `👤 ${project.manager}` });
-    });
   }
 
   /** 渲染项目详情内容（只读、全信息、可选中复制） */
@@ -592,7 +481,7 @@ export class AppVersionManagerView extends ItemView {
     new ButtonComponent(header).setIcon('arrow-left').setButtonText('返回').onClick(() => this.onCloseProjectDetail());
     header.createEl('h3', { text: project.name });
 
-    // 只读信息区（可选中复制）
+    // 只读信息区
     const content = wrapper.createDiv({ cls: 'avm-project-readonly' });
 
     const addLine = (label: string, value: string) => {
@@ -614,6 +503,18 @@ export class AppVersionManagerView extends ItemView {
     addLine('当前进度', project.progress);
     addLine('项目链接', project.projectLink);
     addLine('组件库链接', project.componentLink);
+
+    // APP/版本关联
+    if (project.appVersionLinks.length > 0) {
+      addSection('关联 APP/版本');
+      project.appVersionLinks.forEach((link) => {
+        const app = this.apps.find((a) => a.id === link.appId);
+        const version = this.versions.find((v) => v.id === link.versionId);
+        const label = app ? app.name : '(未知 APP)';
+        const ver = version ? version.versionNumber : '(未知版本)';
+        addLine(label, ver);
+      });
+    }
 
     // 需求与规格
     if (project.features || project.spec || project.requirements) {
@@ -678,8 +579,7 @@ export class AppVersionManagerView extends ItemView {
     addLine('版本号', String(project.version));
   }
 
-  private getFilteredProjects(options?: { versionId?: string }): Project[] {
-    // this.projects 已在 loadData() 中按 app 过滤，无需再次过滤 appVersionIds
+  private getFilteredProjects(): Project[] {
     let projects = this.projects;
 
     // 排除已归档项目（最后一个进度阶段）
@@ -688,15 +588,22 @@ export class AppVersionManagerView extends ItemView {
       projects = projects.filter((p) => p.progress !== lastProgress);
     }
 
-    const versionFilter = options?.versionId ?? this.selectedVersionId;
-    if (versionFilter) {
-      projects = projects.filter((p) => p.versionId === versionFilter);
+    // 按 APP 过滤
+    if (this.currentFilter.appId) {
+      projects = projects.filter((p) => p.appVersionLinks.some((link) => link.appId === this.currentFilter.appId));
     }
 
+    // 按版本过滤
+    if (this.currentFilter.versionId) {
+      projects = projects.filter((p) => p.appVersionLinks.some((link) => link.versionId === this.currentFilter.versionId));
+    }
+
+    // 按进度过滤
     if (this.currentFilter.progress) {
       projects = projects.filter((p) => p.progress === this.currentFilter.progress);
     }
 
+    // 按关键词搜索
     if (this.currentFilter.keyword) {
       projects = this.filterProjectsByKeyword(projects, this.currentFilter.keyword);
     }
@@ -715,49 +622,11 @@ export class AppVersionManagerView extends ItemView {
     }).open();
   }
 
-  private showRenameAppModal() {
-    const app = this.apps.find((a) => a.id === this.selectedAppId);
-    if (!app) return;
-
-    new RenameAppModal(this.app, app.name, async (newName) => {
-      try {
-        await this.plugin.dataService.updateApp(this.selectedAppId!, newName, app.version);
-        await this.refresh();
-      } catch (error) {
-        new Notice(error instanceof Error ? error.message : String(error));
-      }
-    }).open();
-  }
-
-  private async confirmDeleteApp() {
-    const app = this.apps.find((a) => a.id === this.selectedAppId);
-    if (!app) return;
-
-    new ConfirmModal(
-      this.app,
-      '删除APP',
-      `确定要删除APP "${app.name}" 吗？\n这将同时删除该APP下的所有版本和项目数据！`,
-      async () => {
-        try {
-          await this.plugin.dataService.deleteApp(this.selectedAppId!);
-          this.selectedAppId = this.apps.length > 1 ? this.apps.find((a) => a.id !== this.selectedAppId)?.id || null : null;
-          await this.refresh();
-        } catch (error) {
-          new Notice(error instanceof Error ? error.message : String(error));
-        }
-      },
-      undefined,
-      true,
-    ).open();
-  }
-
-  private showCreateVersionModal() {
-    if (!this.selectedAppId) return;
-
+  private showCreateVersionModal(appId: string) {
     new CreateVersionModal(this.app, async (data) => {
       try {
         await this.plugin.dataService.createVersion({
-          appId: this.selectedAppId!,
+          appId,
           ...data,
         });
         await this.refresh();
@@ -768,9 +637,7 @@ export class AppVersionManagerView extends ItemView {
   }
 
   private showCreateProjectModal() {
-    if (!this.selectedVersionId) return;
-
-    new CreateProjectModal(this.app, this.selectedVersionId, this.plugin.settings.progressStages, this.plugin.settings.responsiblePersons, async (data) => {
+    new CreateProjectModal(this.app, this.apps, this.versions, this.plugin.settings.progressStages, this.plugin.settings.responsiblePersons, async (data) => {
       try {
         await this.plugin.dataService.createProject(data);
         await this.refresh();
@@ -787,8 +654,8 @@ export class AppVersionManagerView extends ItemView {
     const filter: SavedFilter = {
       id: Date.now().toString(),
       name: keyword,
-      appId: this.selectedAppId,
-      versionId: this.selectedVersionId,
+      appId: this.currentFilter.appId,
+      versionId: this.currentFilter.versionId,
       progress: this.currentFilter.progress,
       keyword: this.currentFilter.keyword,
     };
@@ -801,35 +668,21 @@ export class AppVersionManagerView extends ItemView {
     const filter = this.savedFilters.find((f) => f.id === filterId);
     if (!filter) return;
 
-    this.selectedAppId = filter.appId;
-    this.selectedVersionId = filter.versionId;
+    this.currentFilter.appId = filter.appId;
+    this.currentFilter.versionId = filter.versionId;
     this.currentFilter.progress = filter.progress;
     this.currentFilter.keyword = filter.keyword;
 
     await this.refresh();
   }
 
-  private async deleteSavedFilter(filterId: string) {
-    const filter = this.savedFilters.find((f) => f.id === filterId);
-    if (!filter) return;
-
-    new ConfirmModal(this.app, '删除筛选条件', `确定要删除筛选条件 "${filter.name}" 吗？`, async () => {
-      this.savedFilters = this.savedFilters.filter((f) => f.id !== filterId);
-      await this.saveSavedFilters();
-      this.render();
-    }).open();
-  }
-
   private showExportModal() {
-    new ExportModal(this.app, this.importExportService, this.getFilteredProjects(), this.versions).open();
+    new ExportModal(this.app, this.importExportService, this.getFilteredProjects(), this.versions, this.apps).open();
   }
 
   private showImportModal() {
-    if (!this.selectedAppId) {
-      new Notice('请先选择一个APP');
-      return;
-    }
-    new ImportModal(this.app, this.importExportService, this.plugin.backupService, this.selectedAppId, async () => {
+    // 导入不再需要指定 APP，直接创建项目（无关联）
+    new ImportModal(this.app, this.importExportService, this.plugin.backupService, null, async () => {
       await this.refresh();
     }).open();
   }
@@ -837,11 +690,7 @@ export class AppVersionManagerView extends ItemView {
   private getArchivedProjects(): Project[] {
     const lastProgress = getProgressOrder(this.plugin.settings.progressStages).at(-1);
     if (!lastProgress) return [];
-    // 收集当前 app 关联的归档项目 + 所有进度为最后阶段的归档项目（即使 versionId 已清空）
-    const versionIds = new Set(this.versions.map((v) => v.id));
-    return this.allProjects.filter(
-      (p) => p.progress === lastProgress && (versionIds.has(p.versionId) || !p.versionId),
-    );
+    return this.projects.filter((p) => p.progress === lastProgress);
   }
 
   private renderArchivedView() {
@@ -916,7 +765,7 @@ export class AppVersionManagerView extends ItemView {
     });
     progressBadge.style.backgroundColor = progressColors[project.progress] || '#64748b';
 
-    // Todo badge（仅展示，点击通过右键菜单「项目待办」入口）
+    // Todo badge
     const todoBadge = header.createDiv({ cls: 'avm-todo-badge', text: '📋' });
     this.getTodoStats(project.id)
       .then((stats) => {
@@ -927,6 +776,18 @@ export class AppVersionManagerView extends ItemView {
       })
       .catch(console.error);
 
+    // APP/版本关联
+    if (project.appVersionLinks.length > 0) {
+      const links = item.createDiv({ cls: 'avm-project-meta' });
+      project.appVersionLinks.forEach((link) => {
+        const app = this.apps.find((a) => a.id === link.appId);
+        const version = this.versions.find((v) => v.id === link.versionId);
+        const appLabel = app ? app.name : '(未知)';
+        const verLabel = version ? version.versionNumber : '(未知)';
+        links.createSpan({ cls: 'avm-meta-item', text: `📦 ${appLabel} / ${verLabel}` });
+      });
+    }
+
     // Features
     if (project.features) {
       const featuresEl = item.createDiv({ cls: 'avm-project-features' });
@@ -934,36 +795,19 @@ export class AppVersionManagerView extends ItemView {
       featuresEl.createSpan({ text: project.features.substring(0, 100) + (project.features.length > 100 ? '...' : '') });
     }
 
-    // Spec
-    if (project.spec) {
-      const specEl = item.createDiv({ cls: 'avm-project-spec' });
-      specEl.createEl('strong', { text: '配置组件/规格:' });
-      specEl.createSpan({ text: project.spec.substring(0, 100) + (project.spec.length > 100 ? '...' : '') });
-    }
-
-    // Overdue
-    if (checkOverdue(project, this.plugin.settings.progressStages, this.plugin.settings.overdueWarningDays)) {
-      item.addClass('avm-overdue');
-    }
-
     // Meta info
     const meta = item.createDiv({ cls: 'avm-project-meta' });
     if (project.manager) {
       meta.createSpan({ cls: 'avm-meta-item', text: `👤 ${project.manager}` });
-    }
-    const version = this.versions.find((v) => v.id === project.versionId);
-    const app = version ? this.apps.find((a) => a.id === version.appId) : null;
-    if (app) {
-      meta.createSpan({ cls: 'avm-meta-item', text: `📦 ${app.name} / ${version?.versionNumber || '-'}` });
     }
     if (project.actualReleaseTime) {
       meta.createSpan({ cls: 'avm-meta-item', text: `📅 ${project.actualReleaseTime}` });
     }
 
     // Links
-    const links = item.createDiv({ cls: 'avm-project-links' });
+    const linkEl = item.createDiv({ cls: 'avm-project-links' });
     if (project.projectLink) {
-      const link = links.createEl('a', {
+      const link = linkEl.createEl('a', {
         cls: 'avm-link',
         text: '项目链接',
         attr: { href: '#' },
@@ -975,7 +819,7 @@ export class AppVersionManagerView extends ItemView {
       });
     }
     if (project.componentLink) {
-      const link = links.createEl('a', {
+      const link = linkEl.createEl('a', {
         cls: 'avm-link',
         text: '组件库',
         attr: { href: '#' },
@@ -1012,19 +856,12 @@ export class AppVersionManagerView extends ItemView {
     const wrapper = this.mainEl.createDiv({ cls: 'avm-project-with-detail' });
     this.mainEl.addClass('avm-archived-main');
 
-    // 左侧：已发布项目列表
     const listEl = wrapper.createDiv({ cls: 'avm-project-list-pane' });
 
     const archivedProjects = this.getArchivedProjects();
     const keyword = this.currentFilter.keyword.toLowerCase();
     const filtered = keyword
-      ? archivedProjects.filter(
-          (p) =>
-            p.name.toLowerCase().includes(keyword) ||
-            p.manager.toLowerCase().includes(keyword) ||
-            p.responsiblePerson.toLowerCase().includes(keyword) ||
-            p.features.toLowerCase().includes(keyword),
-        )
+      ? this.filterProjectsByKeyword(archivedProjects, keyword)
       : archivedProjects;
 
     const listContainer = listEl.createDiv({ cls: 'avm-archived-list' });
@@ -1037,7 +874,6 @@ export class AppVersionManagerView extends ItemView {
       });
     }
 
-    // 右侧：项目详情面板
     const detailEl = wrapper.createDiv({ cls: 'avm-project-detail-pane' });
     const project = this.projects.find((p) => p.id === this.detailProjectId);
     if (project) {
@@ -1052,7 +888,7 @@ export class AppVersionManagerView extends ItemView {
       item
         .setTitle('编辑')
         .setIcon('pencil')
-        .onClick(() => this.showEditArchivedProject(project)),
+        .onClick(() => this.openEditProjectModal(project)),
     );
 
     menu.addItem((item) =>
@@ -1111,10 +947,6 @@ export class AppVersionManagerView extends ItemView {
     menu.showAtMouseEvent(event);
   }
 
-  private showEditArchivedProject(project: Project) {
-    this.openEditProjectModal(project);
-  }
-
   /** 打开提测计划弹窗 */
   openTestPlanModal(project: Project) {
     new TestPlanModal(this.plugin.app, project, async (testData) => {
@@ -1127,7 +959,7 @@ export class AppVersionManagerView extends ItemView {
     }).open();
   }
 
-  /** 打开编辑项目弹窗（含提测日期等全部字段） */
+  /** 打开编辑项目弹窗 */
   openEditProjectModal(project: Project) {
     new EditProjectModal(this.plugin.app, project, this.apps, this.versions, this.plugin.settings.progressStages, this.plugin.settings.responsiblePersons, async (data) => {
       try {

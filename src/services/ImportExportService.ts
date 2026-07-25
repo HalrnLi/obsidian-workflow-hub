@@ -1,13 +1,10 @@
 import { App as ObsidianApp } from 'obsidian';
 import AppVersionManagerPlugin from '../main';
-import { Project, Version, ProjectProgress, getProgressOrder, getFirstProgress, Todo, Category } from '../types';
+import { Project, Version, ProjectLink, ProjectProgress, getProgressOrder, getFirstProgress, Todo, Category, App } from '../types';
 
 export interface ExportProjectJson {
   projectName: string;
-  appVersion: string;
-  bllVersion: string;
-  ippVersion: string;
-  webVersion: string;
+  appVersions: string;
   manager: string;
   projectLink: string;
   componentLink: string;
@@ -36,13 +33,10 @@ export class ImportExportService {
     this.plugin = plugin;
   }
 
-  async exportToCSV(projects: Project[], versions: Version[]): Promise<string> {
+  async exportToCSV(projects: Project[], versions: Version[], apps: App[]): Promise<string> {
     const headers = [
       '项目名称',
-      'APP版本号',
-      'BLL版本',
-      'IPP版本',
-      'Web版本',
+      '关联APP/版本',
       '项目经理',
       '项目链接',
       '组件库链接',
@@ -62,14 +56,24 @@ export class ImportExportService {
       '更新时间',
     ];
 
+    const appMap = new Map(apps.map((a) => [a.id, a]));
+    const versionMap = new Map(versions.map((v) => [v.id, v]));
+
     const rows = projects.map((project) => {
-      const version = versions.find((v) => v.id === project.versionId);
+      // 将 APP/版本对序列化为 "APP-A/v1.0; APP-B/v2.0" 格式
+      const appVersionStr = project.appVersionLinks
+        .map((link) => {
+          const app = appMap.get(link.appId);
+          const version = versionMap.get(link.versionId);
+          const appName = app?.name || '(未知)';
+          const verName = version?.versionNumber || '(未知)';
+          return `${appName}/${verName}`;
+        })
+        .join('; ');
+
       return [
         project.name,
-        version?.versionNumber || '',
-        version?.bllVersion || '',
-        version?.ippVersion || '',
-        version?.webVersion || '',
+        appVersionStr,
         project.manager,
         project.projectLink,
         project.componentLink,
@@ -105,7 +109,7 @@ export class ImportExportService {
     return protectedValue;
   }
 
-  async importFromCSV(content: string, appId: string): Promise<{ success: number; errors: string[] }> {
+  async importFromCSV(content: string): Promise<{ success: number; errors: string[] }> {
     const lines = content.split(/\r?\n/);
     const headers = this.parseCSVLine(lines[0]);
 
@@ -125,19 +129,20 @@ export class ImportExportService {
           rowData[header] = values[index] || '';
         });
 
-        const version = await this.findOrCreateVersion(appId, rowData);
-
         const projectName = rowData['项目名称'];
         if (!projectName) {
           result.errors.push(`第 ${i + 1} 行: 缺少项目名称`);
           continue;
         }
 
+        // 解析 APP/版本关联
+        const appVersionLinks = await this.parseAppVersionLinks(rowData['关联APP/版本'] || '');
+
         const existingProject = projectByName.get(projectName);
 
         const projectData = {
           name: projectName,
-          versionId: version.id,
+          appVersionLinks,
           manager: rowData['项目经理'] || '',
           projectLink: rowData['项目链接'] || '',
           componentLink: rowData['组件库链接'] || '',
@@ -191,36 +196,36 @@ export class ImportExportService {
     return result;
   }
 
-  private async findOrCreateVersion(appId: string, rowData: Record<string, string>): Promise<Version> {
-    const versionNumber = rowData['APP版本号'];
-    if (!versionNumber) {
-      throw new Error('缺少版本号');
-    }
+  /** 解析 "APP-A/v1.0; APP-B/v2.0" 格式的字符串为 ProjectLink 数组 */
+  private async parseAppVersionLinks(input: string): Promise<ProjectLink[]> {
+    if (!input.trim()) return [];
 
-    const versions = await this.plugin.dataService.getVersionsByAppId(appId);
-    let version = versions.find((v) => v.versionNumber === versionNumber);
+    const links: ProjectLink[] = [];
+    const allApps = await this.plugin.dataService.getAllApps();
+    const allVersions = await this.plugin.dataService.getAllVersions();
 
-    if (!version) {
-      version = await this.plugin.dataService.createVersion({
-        appId,
-        versionNumber,
-        bllVersion: rowData['BLL版本'] || '',
-        ippVersion: rowData['IPP版本'] || '',
-        webVersion: rowData['Web版本'] || '',
-        updateContent: '',
-      });
-    } else {
-      if (rowData['BLL版本'] || rowData['IPP版本'] || rowData['Web版本']) {
-        version =
-          (await this.plugin.dataService.updateVersion(version.id, {
-            bllVersion: rowData['BLL版本'] || version.bllVersion,
-            ippVersion: rowData['IPP版本'] || version.ippVersion,
-            webVersion: rowData['Web版本'] || version.webVersion,
-          })) || version;
+    const pairs = input.split(';').map((s) => s.trim()).filter(Boolean);
+
+    for (const pair of pairs) {
+      const slashIndex = pair.lastIndexOf('/');
+      if (slashIndex <= 0) continue;
+
+      const appName = pair.slice(0, slashIndex).trim();
+      const versionNumber = pair.slice(slashIndex + 1).trim();
+
+      const app = allApps.find((a) => a.name === appName);
+      if (!app) continue;
+
+      const version = allVersions.find((v) => v.appId === app.id && v.versionNumber === versionNumber);
+      if (!version) continue;
+
+      // 避免重复关联同一个 APP
+      if (!links.some((l) => l.appId === app.id)) {
+        links.push({ appId: app.id, versionId: version.id });
       }
     }
 
-    return version;
+    return links;
   }
 
   private parseProgress(value: string): ProjectProgress {
@@ -231,17 +236,26 @@ export class ImportExportService {
     return getFirstProgress(this.plugin.settings.progressStages);
   }
 
-  async exportToExcel(projects: Project[], versions: Version[]): Promise<ArrayBuffer> {
+  async exportToExcel(projects: Project[], versions: Version[], apps: App[]): Promise<ArrayBuffer> {
     const XLSX = await import('xlsx');
 
+    const appMap = new Map(apps.map((a) => [a.id, a]));
+    const versionMap = new Map(versions.map((v) => [v.id, v]));
+
     const data = projects.map((project) => {
-      const version = versions.find((v) => v.id === project.versionId);
+      const appVersionStr = project.appVersionLinks
+        .map((link) => {
+          const app = appMap.get(link.appId);
+          const version = versionMap.get(link.versionId);
+          const appName = app?.name || '(未知)';
+          const verName = version?.versionNumber || '(未知)';
+          return `${appName}/${verName}`;
+        })
+        .join('; ');
+
       return {
         项目名称: project.name,
-        APP版本号: version?.versionNumber || '',
-        BLL版本: version?.bllVersion || '',
-        IPP版本: version?.ippVersion || '',
-        Web版本: version?.webVersion || '',
+        关联APP版本: appVersionStr,
         项目经理: project.manager,
         项目链接: project.projectLink,
         组件库链接: project.componentLink,
@@ -269,7 +283,7 @@ export class ImportExportService {
     return XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
   }
 
-  async importFromExcel(buffer: ArrayBuffer, appId: string): Promise<{ success: number; errors: string[] }> {
+  async importFromExcel(buffer: ArrayBuffer): Promise<{ success: number; errors: string[] }> {
     const XLSX = await import('xlsx');
 
     const wb = XLSX.read(buffer, { type: 'array' });
@@ -285,24 +299,19 @@ export class ImportExportService {
       const row = data[i];
 
       try {
-        const version = await this.findOrCreateVersion(appId, {
-          APP版本号: row['APP版本号'] || '',
-          BLL版本: row['BLL版本'] || '',
-          IPP版本: row['IPP版本'] || '',
-          Web版本: row['Web版本'] || '',
-        });
-
         const projectName = row['项目名称'];
         if (!projectName) {
           result.errors.push(`第 ${i + 2} 行: 缺少项目名称`);
           continue;
         }
 
+        const appVersionLinks = await this.parseAppVersionLinks(row['关联APP版本'] || '');
+
         const existingProject = projectByName.get(projectName);
 
         const projectData = {
           name: projectName,
-          versionId: version.id,
+          appVersionLinks,
           manager: row['项目经理'] || '',
           projectLink: row['项目链接'] || '',
           componentLink: row['组件库链接'] || '',
@@ -329,21 +338,28 @@ export class ImportExportService {
     return result;
   }
 
-  async exportToJson(projects: Project[], versions: Version[]): Promise<string> {
+  async exportToJson(projects: Project[], versions: Version[], apps: App[]): Promise<string> {
     if (!Array.isArray(projects) || !Array.isArray(versions)) {
       return '[]';
     }
 
+    const appMap = new Map(apps.map((a) => [a.id, a]));
     const versionMap = new Map(versions.map((v) => [v.id, v]));
 
     const data: ExportProjectJson[] = projects.map((project) => {
-      const version = versionMap.get(project.versionId);
+      const appVersionStr = project.appVersionLinks
+        .map((link) => {
+          const app = appMap.get(link.appId);
+          const version = versionMap.get(link.versionId);
+          const appName = app?.name || '(未知)';
+          const verName = version?.versionNumber || '(未知)';
+          return `${appName}/${verName}`;
+        })
+        .join('; ');
+
       return {
         projectName: project.name,
-        appVersion: version?.versionNumber ?? '',
-        bllVersion: version?.bllVersion ?? '',
-        ippVersion: version?.ippVersion ?? '',
-        webVersion: version?.webVersion ?? '',
+        appVersions: appVersionStr,
         manager: project.manager,
         projectLink: project.projectLink,
         componentLink: project.componentLink,

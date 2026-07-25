@@ -1018,4 +1018,472 @@ export const COMMON = `
   color: var(--text-muted);
   font-size: 12px;
 }
+
+/* ============ APP/版本管理面板 ============ */
+.avm-app-version-manage {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 顶部标题栏 */
+.avm-avm-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  flex-shrink: 0;
+}
+.avm-avm-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.avm-avm-title-row h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.avm-avm-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* 内容区 */
+.avm-avm-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+/* 空状态 */
+.avm-avm-empty {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* APP 卡片列表 */
+.avm-avm-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 900px;
+}
+
+/* APP 卡片 */
+.avm-avm-card {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* 卡片头部 */
+.avm-avm-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--background-secondary);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.avm-avm-card-title-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.avm-avm-card-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.avm-avm-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.avm-avm-card-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+.avm-avm-card-actions .button-component {
+  padding: 2px 6px !important;
+  height: auto !important;
+}
+
+/* 版本区域 */
+.avm-avm-card-versions {
+  padding: 0;
+}
+.avm-avm-no-versions {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* 版本表格 */
+.avm-avm-version-table {
+  width: 100%;
+  font-size: 13px;
+}
+
+/* 表头 */
+.avm-avm-version-thead {
+  display: flex;
+  align-items: center;
+  padding: 8px 14px;
+  background: var(--background-secondary-alt);
+  border-bottom: 1px solid var(--background-modifier-border);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.avm-avm-th {
+  flex-shrink: 0;
+}
+.avm-avm-th-version { width: 140px; }
+.avm-avm-th-components { flex: 1; }
+.avm-avm-th-projects { width: 70px; text-align: center; }
+.avm-avm-th-actions { width: 110px; text-align: right; }
+
+/* 表体 */
+.avm-avm-version-tbody {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 版本行 */
+.avm-avm-version-row {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--background-modifier-border-hover);
+  transition: background-color 0.1s;
+}
+.avm-avm-version-row:last-child {
+  border-bottom: none;
+}
+.avm-avm-version-row:hover {
+  background: var(--background-modifier-hover);
+}
+.avm-avm-version-row-archived {
+  opacity: 0.55;
+}
+
+/* 单元格 */
+.avm-avm-td {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.avm-avm-td-version { width: 140px; }
+.avm-avm-td-components { flex: 1; min-width: 0; }
+.avm-avm-td-projects { width: 70px; justify-content: center; }
+.avm-avm-td-actions { width: 110px; justify-content: flex-end; gap: 2px; }
+
+/* 版本号 */
+.avm-avm-version-number {
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text-normal);
+}
+.avm-avm-version-archived-badge {
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--background-modifier-border);
+  padding: 1px 6px;
+  border-radius: 8px;
+  margin-left: 6px;
+}
+
+/* 组件版本文本 */
+.avm-avm-component-text {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 项目计数 */
+.avm-avm-project-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--background-modifier-border);
+  padding: 1px 8px;
+  border-radius: 10px;
+  min-width: 40px;
+  text-align: center;
+}
+
+/* 操作按钮 */
+.avm-avm-td-actions .button-component {
+  padding: 2px 4px !important;
+  height: auto !important;
+  color: var(--text-muted);
+}
+.avm-avm-td-actions .button-component:hover {
+  color: var(--text-normal);
+}
+
+/* 版本行双击提示 */
+.avm-avm-version-row {
+  cursor: pointer;
+}
+
+/* 大号文本域 */
+.avm-avm-textarea-large {
+  width: 280px;
+  min-height: 120px;
+  padding: 8px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 13px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.5;
+}
+.avm-avm-textarea-large:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+/* 主体布局（含详情面板） */
+.avm-avm-body {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+.avm-avm-body .avm-avm-cards {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+.avm-avm-body-with-detail .avm-avm-cards {
+  max-width: calc(100% - 300px);
+}
+
+/* 右侧详情滑出面板 */
+.avm-avm-detail-panel {
+  width: 300px;
+  min-width: 260px;
+  border-left: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+  animation: avm-detail-slide-in 0.2s ease;
+}
+@keyframes avm-detail-slide-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.avm-avm-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-shrink: 0;
+}
+.avm-avm-detail-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.avm-avm-detail-close {
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-muted);
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.avm-avm-detail-close:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.avm-avm-detail-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+}
+
+.avm-avm-detail-row {
+  display: flex;
+  gap: 8px;
+  padding: 6px 0;
+  line-height: 1.5;
+}
+.avm-avm-detail-label {
+  flex-shrink: 0;
+  min-width: 70px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.avm-avm-detail-value {
+  flex: 1;
+  color: var(--text-normal);
+  font-size: 13px;
+  word-break: break-word;
+}
+
+.avm-avm-detail-section {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+.avm-avm-detail-section:first-child {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.avm-avm-detail-update-content {
+  font-size: 13px;
+  color: var(--text-normal);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-top: 4px;
+  padding: 10px;
+  background: var(--background-primary);
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  min-height: 60px;
+}
+
+.avm-avm-detail-projects {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.avm-avm-detail-project-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: var(--background-primary);
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+}
+.avm-avm-detail-project-name {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.avm-avm-detail-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 12px;
+}
+
+/* ============ APP/版本关联编辑器 ============ */
+.avm-links-editor-container {
+  margin-bottom: 8px;
+}
+.avm-links-editor-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.avm-links-editor-title {
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text-normal);
+}
+.avm-links-editor-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* 已关联列表 */
+.avm-links-editor-list {
+  margin-bottom: 8px;
+}
+.avm-links-editor-empty {
+  padding: 8px 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.avm-links-editor-item {
+  border-top: none !important;
+  padding: 4px 0 !important;
+}
+.avm-links-editor-item .setting-item-info {
+  display: none;
+}
+.avm-links-editor-item .setting-item-control {
+  flex: 1;
+  justify-content: space-between;
+}
+.avm-links-editor-item-text {
+  background: var(--background-secondary) !important;
+  color: var(--text-muted) !important;
+  border: none !important;
+  padding: 4px 8px !important;
+  border-radius: 4px !important;
+  cursor: default !important;
+  flex: 1;
+}
+.avm-links-editor-item .button-component {
+  flex-shrink: 0;
+}
+
+/* 添加区域 */
+.avm-links-editor-add {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+}
+.avm-links-editor-add-app,
+.avm-links-editor-add-version,
+.avm-links-editor-add-btn {
+  border-top: none !important;
+  padding: 2px 0 !important;
+}
+.avm-links-editor-add-app .setting-item-info,
+.avm-links-editor-add-version .setting-item-info {
+  flex: 0 0 70px;
+}
+.avm-links-editor-add-app .setting-item-control,
+.avm-links-editor-add-version .setting-item-control {
+  flex: 1;
+  min-width: 0;
+}
+.avm-links-editor-add-app select,
+.avm-links-editor-add-version select {
+  width: 100%;
+}
+.avm-links-editor-add-btn .setting-item-info {
+  display: none;
+}
+.avm-links-editor-add-btn .setting-item-control {
+  justify-content: flex-end;
+}
 `;

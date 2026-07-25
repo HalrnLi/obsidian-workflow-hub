@@ -1,4 +1,4 @@
-import { Menu, Modal, App as ObsidianApp, Setting, ButtonComponent, TFile, Notice } from 'obsidian';
+import { Menu, Modal, App as ObsidianApp, Setting, ButtonComponent, Notice } from 'obsidian';
 import AppVersionManagerPlugin from '../main';
 import {
   Version,
@@ -13,10 +13,9 @@ import {
   isProjectInPreRelease,
   getCurrentBRound,
   ROUND_COLORS,
-  ProgressStage,
 } from '../types';
 import { ConfirmModal } from './ConfirmModal';
-import { createSaveButtons, createActionButtons } from './ModalUtils';
+import { createSaveButtons } from './ModalUtils';
 import { EditProjectModal } from './EditProjectModal';
 import { TestPlanModal } from './modals/TestPlanModal';
 import { ProjectInfoModal } from './modals/ProjectInfoModal';
@@ -24,19 +23,26 @@ import { ProjectTodosModal } from './modals/ProjectTodosModal';
 import { sortProjectsByPriority, isProjectHighlighted, checkOverdue, calculateOverdueStats } from '../utils/projectSorting';
 import { openExternalLink } from '../utils/linkUtils';
 
+interface FilterState {
+  appId: string | null;
+  versionId: string | null;
+}
+
 export class DualPaneView {
   containerEl: HTMLElement;
   plugin: AppVersionManagerPlugin;
   apps: App[];
   versions: Version[];
   projects: Project[];
-  selectedVersionId: string | null;
-  onVersionSelect: (versionId: string | null) => void;
-  onCreateVersion: () => void;
+  currentFilter: FilterState;
+  onFilterChange: (filter: Partial<FilterState>) => void;
   onCreateProject: () => void;
   onRefresh: () => void;
   getTodoStats: (projectId: string) => Promise<{ total: number; completed: number; overdue: number }>;
   onOpenTodos: (projectId: string, projectName: string) => void;
+
+  // 左侧 APP 展开状态
+  private expandedApps: Set<string> = new Set();
 
   constructor(
     containerEl: HTMLElement,
@@ -44,9 +50,7 @@ export class DualPaneView {
     apps: App[],
     versions: Version[],
     projects: Project[],
-    selectedVersionId: string | null,
-    onVersionSelect: (versionId: string | null) => void,
-    onCreateVersion: () => void,
+    currentFilter: FilterState,
     onCreateProject: () => void,
     onRefresh: () => void,
     getTodoStats: (projectId: string) => Promise<{ total: number; completed: number; overdue: number }>,
@@ -57,13 +61,16 @@ export class DualPaneView {
     this.apps = apps;
     this.versions = versions;
     this.projects = projects;
-    this.selectedVersionId = selectedVersionId;
-    this.onVersionSelect = onVersionSelect;
-    this.onCreateVersion = onCreateVersion;
+    this.currentFilter = currentFilter;
     this.onCreateProject = onCreateProject;
     this.onRefresh = onRefresh;
     this.getTodoStats = getTodoStats;
     this.onOpenTodos = onOpenTodos;
+
+    // 默认展开当前选中的 APP
+    if (currentFilter.appId) {
+      this.expandedApps.add(currentFilter.appId);
+    }
 
     this.render();
   }
@@ -73,163 +80,100 @@ export class DualPaneView {
     this.containerEl.addClass('avm-dual-pane');
 
     const leftPane = this.containerEl.createDiv({ cls: 'avm-left-pane' });
-    this.renderVersionList(leftPane);
+    this.renderAppVersionBrowser(leftPane);
 
     const rightPane = this.containerEl.createDiv({ cls: 'avm-right-pane' });
     this.renderProjectList(rightPane);
   }
 
-  private renderVersionList(container: HTMLElement) {
+  /** 左侧：APP/版本浏览器 */
+  private renderAppVersionBrowser(container: HTMLElement) {
     container.empty();
 
     const header = container.createDiv({ cls: 'avm-pane-header' });
-    header.createEl('h3', { text: '版本列表' });
+    header.createEl('h3', { text: 'APP / 版本' });
 
-    new ButtonComponent(header)
-      .setIcon('plus')
-      .setTooltip('新建版本')
-      .onClick(() => {
-        this.onCreateVersion();
-      });
-
-    const versionList = container.createDiv({ cls: 'avm-version-list' });
-
-    const activeVersions = this.versions.filter((v) => !v.isArchived);
-    const archivedVersions = this.versions.filter((v) => v.isArchived);
-
-    activeVersions.forEach((version) => {
-      this.renderVersionItem(versionList, version);
+    // "全部"选项
+    const allItem = container.createDiv({
+      cls: `avm-app-browser-item avm-app-browser-all ${!this.currentFilter.appId ? 'avm-selected' : ''}`,
+    });
+    allItem.createSpan({ cls: 'avm-app-browser-name', text: '全部项目' });
+    const allCount = this.projects.length;
+    allItem.createSpan({ cls: 'avm-app-browser-count', text: `${allCount}` });
+    allItem.addEventListener('click', () => {
+      this.currentFilter = { appId: null, versionId: null };
+      this.onFilterChange(this.currentFilter);
+      this.render();
     });
 
-    if (archivedVersions.length > 0) {
-      const archivedHeader = versionList.createDiv({ cls: 'avm-archived-header' });
-      archivedHeader.createEl('span', { text: `已归档 (${archivedVersions.length})` });
+    const browserList = container.createDiv({ cls: 'avm-app-browser-list' });
 
-      archivedVersions.forEach((version) => {
-        this.renderVersionItem(versionList, version, true);
+    // 按 APP 分组
+    this.apps.forEach((app) => {
+      const appVersions = this.versions.filter((v) => v.appId === app.id && !v.isArchived);
+      const appProjects = this.projects.filter((p) => p.appVersionLinks.some((link) => link.appId === app.id));
+
+      const isExpanded = this.expandedApps.has(app.id);
+      const isSelected = this.currentFilter.appId === app.id && !this.currentFilter.versionId;
+
+      const appItem = browserList.createDiv({
+        cls: `avm-app-browser-item ${isSelected ? 'avm-selected' : ''}`,
       });
-    }
 
-    if (this.versions.length === 0) {
-      versionList.createDiv({ cls: 'avm-empty-state', text: '暂无版本，点击右上角添加' });
-    }
-  }
-
-  private renderVersionItem(container: HTMLElement, version: Version, isArchived: boolean = false) {
-    const item = container.createDiv({
-      cls: `avm-version-item ${this.selectedVersionId === version.id ? 'avm-selected' : ''} ${isArchived ? 'avm-archived' : ''}`,
-    });
-
-    item.createDiv({ cls: 'avm-version-number', text: version.versionNumber });
-
-    const meta = item.createDiv({ cls: 'avm-version-meta' });
-    const versionProjects = this.projects.filter((p) => p.versionId === version.id);
-    const projectCount = versionProjects.length;
-    meta.createSpan({ text: `${projectCount} 个项目` });
-
-    // 计算延期统计
-    const warningDays = this.plugin.settings.overdueWarningDays;
-    const stats = calculateOverdueStats(versionProjects, this.plugin.settings.progressStages, warningDays);
-
-    if (stats.overdue > 0) {
-      const overdueBadge = meta.createSpan({
-        cls: 'avm-version-badge avm-version-badge-overdue',
-        text: `${stats.overdue} 延期`,
+      // 展开/折叠图标
+      const expandIcon = appItem.createSpan({
+        cls: 'avm-app-browser-expand',
+        text: isExpanded ? '▼' : '▶',
       });
-      overdueBadge.style.color = '#ef4444';
-      overdueBadge.style.fontWeight = '500';
-      overdueBadge.style.marginLeft = '6px';
-    }
 
-    if (stats.warning > 0) {
-      const warningBadge = meta.createSpan({
-        cls: 'avm-version-badge avm-version-badge-warning',
-        text: `${stats.warning} 预警`,
+      appItem.createSpan({ cls: 'avm-app-browser-name', text: app.name });
+      appItem.createSpan({ cls: 'avm-app-browser-count', text: `${appProjects.length}` });
+
+      appItem.addEventListener('click', (e) => {
+        // 点击展开图标区域时只展开/折叠，不筛选
+        if (e.target === expandIcon) {
+          if (isExpanded) {
+            this.expandedApps.delete(app.id);
+          } else {
+            this.expandedApps.add(app.id);
+          }
+          this.render();
+          return;
+        }
+        // 点击其他区域：选中 APP 并展开
+        this.expandedApps.add(app.id);
+        this.currentFilter = { appId: app.id, versionId: null };
+        this.onFilterChange(this.currentFilter);
+        this.render();
       });
-      warningBadge.style.color = '#f59e0b';
-      warningBadge.style.fontWeight = '500';
-      warningBadge.style.marginLeft = '6px';
-    }
 
-    item.addEventListener('click', () => {
-      this.onVersionSelect(version.id);
-    });
+      // 展开时显示版本列表
+      if (isExpanded && appVersions.length > 0) {
+        const versionList = browserList.createDiv({ cls: 'avm-version-sublist' });
+        appVersions.forEach((version) => {
+          const versionProjects = this.projects.filter((p) =>
+            p.appVersionLinks.some((link) => link.versionId === version.id),
+          );
+          const isVersionSelected = this.currentFilter.versionId === version.id;
 
-    item.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      this.showVersionContextMenu(version, e, isArchived);
-    });
-  }
+          const versionItem = versionList.createDiv({
+            cls: `avm-version-subitem ${isVersionSelected ? 'avm-selected' : ''}`,
+          });
+          versionItem.createSpan({ cls: 'avm-version-subitem-number', text: version.versionNumber });
+          versionItem.createSpan({ cls: 'avm-version-subitem-count', text: `${versionProjects.length}` });
 
-  private showVersionContextMenu(version: Version, event: MouseEvent, isArchived: boolean) {
-    const menu = new Menu();
-
-    menu.addItem((item) =>
-      item
-        .setTitle('编辑')
-        .setIcon('pencil')
-        .onClick(() => this.showEditVersionModal(version)),
-    );
-
-    if (isArchived) {
-      menu.addItem((item) =>
-        item
-          .setTitle('取消归档')
-          .setIcon('archive')
-          .onClick(async () => {
-            await this.plugin.dataService.unarchiveVersion(version.id);
-            this.onRefresh();
-          }),
-      );
-    } else {
-      menu.addItem((item) =>
-        item
-          .setTitle('归档')
-          .setIcon('archive')
-          .onClick(async () => {
-            await this.plugin.dataService.archiveVersion(version.id);
-            this.onRefresh();
-          }),
-      );
-    }
-
-    menu.addSeparator();
-
-    menu.addItem((item) =>
-      item
-        .setTitle('删除')
-        .setIcon('trash')
-        .onClick(() => {
-          new ConfirmModal(
-            this.plugin.app,
-            '删除版本',
-            `确定要删除版本 ${version.versionNumber} 吗？\n关联的项目将保留但解除关联。`,
-            async () => {
-              try {
-                await this.plugin.dataService.deleteVersion(version.id);
-                this.onRefresh();
-              } catch (error) {
-                new Notice(error instanceof Error ? error.message : String(error));
-              }
-            },
-            undefined,
-            true,
-          ).open();
-        }),
-    );
-
-    menu.showAtMouseEvent(event);
-  }
-
-  private showEditVersionModal(version: Version) {
-    new EditVersionModal(this.plugin.app, version, async (data) => {
-      try {
-        await this.plugin.dataService.updateVersion(version.id, data, version.version);
-        this.onRefresh();
-      } catch (error) {
-        new Notice(error instanceof Error ? error.message : String(error));
+          versionItem.addEventListener('click', () => {
+            this.currentFilter = { appId: app.id, versionId: version.id };
+            this.onFilterChange(this.currentFilter);
+            this.render();
+          });
+        });
       }
-    }).open();
+    });
+
+    if (this.apps.length === 0) {
+      browserList.createDiv({ cls: 'avm-empty-state', text: '暂无 APP' });
+    }
   }
 
   private renderProjectList(container: HTMLElement) {
@@ -238,30 +182,21 @@ export class DualPaneView {
     const header = container.createDiv({ cls: 'avm-pane-header' });
     header.createEl('h3', { text: '项目列表' });
 
-    if (this.selectedVersionId) {
-      new ButtonComponent(header)
-        .setIcon('plus')
-        .setTooltip('新建项目')
-        .onClick(() => {
-          this.onCreateProject();
-        });
-    }
+    new ButtonComponent(header)
+      .setIcon('plus')
+      .setTooltip('新建项目')
+      .onClick(() => {
+        this.onCreateProject();
+      });
 
     const projectList = container.createDiv({ cls: 'avm-project-list' });
 
-    if (!this.selectedVersionId) {
-      projectList.createDiv({ cls: 'avm-empty-state', text: '请选择一个版本查看项目' });
-      return;
-    }
-
-    const versionProjects = this.projects.filter((p) => p.versionId === this.selectedVersionId);
-
-    if (versionProjects.length === 0) {
+    if (this.projects.length === 0) {
       projectList.createDiv({ cls: 'avm-empty-state', text: '暂无项目，点击右上角添加' });
       return;
     }
 
-    const sortedProjects = this.applySorting(versionProjects);
+    const sortedProjects = this.applySorting(this.projects);
 
     sortedProjects.forEach((project) => {
       this.renderProjectItem(projectList, project);
@@ -279,12 +214,11 @@ export class DualPaneView {
   private renderProjectItem(container: HTMLElement, project: Project) {
     const item = container.createDiv({ cls: 'avm-project-item' });
 
-    // 添加高亮样式（今天或明天）
     if (this.isProjectHighlighted(project)) {
       item.addClass('avm-highlighted-row');
     }
 
-    // 预发布横幅：项目到达预发布轮次后醒目提示
+    // 预发布横幅
     const lastProgress = getLastProgress(this.plugin.settings.progressStages);
     if (isProjectInPreRelease(project, this.plugin.settings.preReleaseRound, lastProgress)) {
       const banner = item.createDiv({ cls: 'avm-pre-release-banner' });
@@ -306,7 +240,7 @@ export class DualPaneView {
     });
     progressBadge.style.backgroundColor = progressColors[project.progress] || '#64748b';
 
-    // Add todo badge（仅展示，点击通过右键菜单「项目待办」入口）
+    // Todo badge
     const todoBadge = header.createDiv({ cls: 'avm-todo-badge', text: '📋' });
     this.getTodoStats(project.id)
       .then((stats) => {
@@ -316,6 +250,17 @@ export class DualPaneView {
         }
       })
       .catch(console.error);
+
+    // APP/版本标签
+    if (project.appVersionLinks.length > 0) {
+      const linksEl = item.createDiv({ cls: 'avm-project-links-tags' });
+      project.appVersionLinks.forEach((link) => {
+        const app = this.apps.find((a) => a.id === link.appId);
+        const version = this.versions.find((v) => v.id === link.versionId);
+        const label = app ? `${app.name}/${version?.versionNumber || '?'}` : '(未知)';
+        linksEl.createSpan({ cls: 'avm-link-tag', text: label });
+      });
+    }
 
     if (project.features) {
       const featuresEl = item.createDiv({ cls: 'avm-project-features' });
@@ -341,7 +286,6 @@ export class DualPaneView {
     const stageBadge = meta.createSpan({ cls: 'avm-meta-item avm-current-stage-badge' });
     stageBadge.createSpan({ cls: 'avm-stage-label', text: '当前阶段:' });
     const stageValue = stageBadge.createSpan({ cls: 'avm-stage-value', text: currentRound });
-    // 为不同 B 轮设置不同颜色（集中定义在 types.ts 的 ROUND_COLORS）
     stageValue.style.color = ROUND_COLORS[currentRound] || '#64748b';
     stageValue.style.fontWeight = '600';
 
@@ -485,66 +429,5 @@ export class DualPaneView {
 
   private showProjectTodosModal(project: Project) {
     new ProjectTodosModal(this.plugin.app, this.plugin, project, () => this.onRefresh()).open();
-  }
-}
-
-class EditVersionModal extends Modal {
-  version: Version;
-  onSubmit: (data: Partial<Version>) => void;
-
-  constructor(app: ObsidianApp, version: Version, onSubmit: (data: Partial<Version>) => void) {
-    super(app);
-    this.version = version;
-    this.onSubmit = onSubmit;
-  }
-
-  onOpen() {
-    const { contentEl } = this;
-    contentEl.addClass('avm-modal');
-
-    contentEl.createEl('h2', { text: '编辑版本' });
-
-    const data = {
-      versionNumber: this.version.versionNumber,
-      bllVersion: this.version.bllVersion,
-      ippVersion: this.version.ippVersion,
-      webVersion: this.version.webVersion,
-      updateContent: this.version.updateContent,
-    };
-
-    new Setting(contentEl)
-      .setName('APP版本号 *')
-      .addText((text) => text.setValue(data.versionNumber).onChange((value) => (data.versionNumber = value)));
-
-    new Setting(contentEl)
-      .setName('BLL版本 *')
-      .addText((text) => text.setValue(data.bllVersion).onChange((value) => (data.bllVersion = value)));
-
-    new Setting(contentEl)
-      .setName('IPP版本 *')
-      .addText((text) => text.setValue(data.ippVersion).onChange((value) => (data.ippVersion = value)));
-
-    new Setting(contentEl)
-      .setName('Web版本 *')
-      .addText((text) => text.setValue(data.webVersion).onChange((value) => (data.webVersion = value)));
-
-    new Setting(contentEl)
-      .setName('更新内容')
-      .addTextArea((text) => text.setValue(data.updateContent).onChange((value) => (data.updateContent = value)));
-
-    createSaveButtons(
-      contentEl,
-      () => {
-        if (data.versionNumber && data.bllVersion && data.ippVersion && data.webVersion) {
-          this.onSubmit(data);
-          this.close();
-        }
-      },
-      () => this.close(),
-    );
-  }
-
-  onClose() {
-    this.contentEl.empty();
   }
 }

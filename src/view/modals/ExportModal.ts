@@ -1,5 +1,5 @@
 import { Modal, App as ObsidianApp, Setting } from 'obsidian';
-import { Project, Version } from '../../types';
+import { App, Project, Version } from '../../types';
 import { ImportExportService } from '../../services/ImportExportService';
 import { createActionButtons } from '../ModalUtils';
 
@@ -7,13 +7,15 @@ export class ExportModal extends Modal {
   importExportService: ImportExportService;
   projects: Project[];
   versions: Version[];
+  apps: App[];
   format: 'csv' | 'xlsx' = 'csv';
 
-  constructor(app: ObsidianApp, service: ImportExportService, projects: Project[], versions: Version[]) {
+  constructor(app: ObsidianApp, service: ImportExportService, projects: Project[], versions: Version[], apps: App[]) {
     super(app);
     this.importExportService = service;
     this.projects = projects;
     this.versions = versions;
+    this.apps = apps;
   }
 
   onOpen() {
@@ -40,10 +42,10 @@ export class ExportModal extends Modal {
         statusEl.setText('处理中...');
         try {
           if (this.format === 'xlsx') {
-            const buffer = await this.importExportService.exportToExcel(this.projects, this.versions);
+            const buffer = await this.importExportService.exportToExcel(this.projects, this.versions, this.apps);
             this.downloadFile(buffer, 'projects.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
           } else {
-            const csv = await this.importExportService.exportToCSV(this.projects, this.versions);
+            const csv = await this.importExportService.exportToCSV(this.projects, this.versions, this.apps);
             this.downloadFile(csv, 'projects.csv', 'text/csv');
           }
           statusEl.setText('导出成功');

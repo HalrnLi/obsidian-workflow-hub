@@ -272,7 +272,7 @@ export class MigrationService {
         const newFm: Record<string, unknown> = {
           id: String(fm.id),
           name: String(fm.name ?? ''),
-          versionId: String(fm.versionId ?? ''),
+          appVersionLinks: [] as Record<string, string>[],
           manager: String(fm.manager ?? ''),
           responsiblePerson: String(fm.responsiblePerson ?? ''),
           projectLink: String(fm.projectLink ?? ''),

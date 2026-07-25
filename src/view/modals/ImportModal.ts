@@ -6,14 +6,14 @@ import { createActionButtons } from '../ModalUtils';
 export class ImportModal extends Modal {
   importExportService: ImportExportService;
   backupService: BackupService | null;
-  appId: string;
+  appId: string | null;
   onComplete: () => void;
 
   constructor(
     app: ObsidianApp,
     importService: ImportExportService,
     backupService: BackupService | null,
-    appId: string,
+    appId: string | null,
     onComplete: () => void,
   ) {
     super(app);
@@ -73,7 +73,7 @@ export class ImportModal extends Modal {
             }
           } else if (file.name.endsWith('.csv')) {
             const content = await file.text();
-            const result = await this.importExportService.importFromCSV(content, this.appId);
+            const result = await this.importExportService.importFromCSV(content);
             new Notice(`导入完成！成功: ${result.success} 条${result.errors.length > 0 ? `\n错误: ${result.errors.join('\n')}` : ''}`);
             statusEl.setText('导入成功');
             setTimeout(() => {
@@ -82,7 +82,7 @@ export class ImportModal extends Modal {
             }, 800);
           } else {
             const buffer = await file.arrayBuffer();
-            const result = await this.importExportService.importFromExcel(buffer, this.appId);
+            const result = await this.importExportService.importFromExcel(buffer);
             new Notice(`导入完成！成功: ${result.success} 条${result.errors.length > 0 ? `\n错误: ${result.errors.join('\n')}` : ''}`);
             statusEl.setText('导入成功');
             setTimeout(() => {

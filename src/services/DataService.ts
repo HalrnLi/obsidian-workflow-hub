@@ -7,6 +7,7 @@ import {
   App,
   Version,
   Project,
+  ProjectLink,
   ProjectProgress,
   ProgressHistoryItem,
   ProjectInfoItem,
@@ -31,6 +32,24 @@ function parseProjectInfo(raw: unknown): ProjectInfoItem[] {
       const link = (item as any).link;
       if (typeof description === 'string' && description.trim()) {
         result.push({ description, link: typeof link === 'string' ? link : '' });
+      }
+    }
+  }
+  return result;
+}
+
+// 解析 appVersionLinks 数组（frontmatter 已解析为对象数组，这里做字段规范化与空条目过滤）
+function parseProjectLinks(raw: unknown): ProjectLink[] {
+  if (!Array.isArray(raw)) return [];
+  const result: ProjectLink[] = [];
+  for (const item of raw) {
+    if (item && typeof item === 'object') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const appId = (item as any).appId;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const versionId = (item as any).versionId;
+      if (typeof appId === 'string' && appId && typeof versionId === 'string' && versionId) {
+        result.push({ appId, versionId });
       }
     }
   }
@@ -363,21 +382,18 @@ export class DataService {
     const app = apps.find((a) => a.id === id);
     if (!app) return false;
 
-    // 第一阶段：收集所有操作，验证它们都能执行
+    // 第一阶段：收集所有操作
     const versions = await this.getVersionsByAppId(id);
     const versionFiles: (TFile | CustomFile)[] = [];
-    const versionProjectUpdates: { projectId: string; versionId: string }[] = [];
+    const versionIds: string[] = [];
 
-    // 收集版本文件和需要更新的项目
+    // 收集版本文件
     for (const version of versions) {
       const file = await this.findEntityFileById<Version>(this.getVersionsFolder(), this.parseVersionFile, version.id);
       if (file) {
         versionFiles.push(file);
       }
-      const projects = await this.getProjectsByVersionId(version.id);
-      for (const project of projects) {
-        versionProjectUpdates.push({ projectId: project.id, versionId: '' });
-      }
+      versionIds.push(version.id);
     }
 
     // 收集 App 文件
@@ -401,10 +417,17 @@ export class DataService {
         (fallbackFile instanceof TFile ? fallbackFile : null);
     }
 
-    // 第二阶段：执行所有操作（原子性：如果任何操作失败，已执行的操作不会回滚，但会抛出错误）
-    // 清空所有关联项目的 versionId
-    for (const update of versionProjectUpdates) {
-      await this.updateProject(update.projectId, { versionId: update.versionId });
+    // 第二阶段：执行所有操作
+    // 清理所有项目中引用了此 APP 或其版本的 appVersionLinks
+    const allProjects = await this.getAllProjects();
+    const versionIdSet = new Set(versionIds);
+    for (const project of allProjects) {
+      const cleaned = project.appVersionLinks.filter(
+        (link) => link.appId !== id && !versionIdSet.has(link.versionId),
+      );
+      if (cleaned.length !== project.appVersionLinks.length) {
+        await this.updateProject(project.id, { appVersionLinks: cleaned });
+      }
     }
 
     // 删除所有版本文件
@@ -589,16 +612,18 @@ export class DataService {
     const appId = version.appId;
 
     // 第一阶段：收集所有操作
-    const projects = await this.getProjectsByVersionId(id);
-    const projectUpdates: { projectId: string; versionId: string }[] = projects.map((p) => ({ projectId: p.id, versionId: '' }));
-
     const file = await this.findEntityFileById<Version>(this.getVersionsFolder(), this.parseVersionFile, id);
 
-    // 第二阶段：执行所有操作
-    for (const update of projectUpdates) {
-      await this.updateProject(update.projectId, { versionId: update.versionId });
+    // 清理所有项目中引用了此版本的 appVersionLinks
+    const allProjects = await this.getAllProjects();
+    for (const project of allProjects) {
+      const cleaned = project.appVersionLinks.filter((link) => link.versionId !== id);
+      if (cleaned.length !== project.appVersionLinks.length) {
+        await this.updateProject(project.id, { appVersionLinks: cleaned });
+      }
     }
 
+    // 第二阶段：执行删除
     if (file) {
       await this.deleteFile(file);
     }
@@ -635,7 +660,15 @@ export class DataService {
 
   async getProjectsByVersionId(versionId: string): Promise<Project[]> {
     const allProjects = await this.getAllProjects();
-    const filtered = allProjects.filter((p) => p.versionId === versionId);
+    const filtered = allProjects.filter((p) => p.appVersionLinks.some((link) => link.versionId === versionId));
+    const progressOrder = getProgressOrder(this.plugin.settings.progressStages);
+    return filtered.sort((a, b) => progressOrder.indexOf(a.progress) - progressOrder.indexOf(b.progress));
+  }
+
+  /** 获取关联了指定 APP 的所有项目 */
+  async getProjectsByAppId(appId: string): Promise<Project[]> {
+    const allProjects = await this.getAllProjects();
+    const filtered = allProjects.filter((p) => p.appVersionLinks.some((link) => link.appId === appId));
     const progressOrder = getProgressOrder(this.plugin.settings.progressStages);
     return filtered.sort((a, b) => progressOrder.indexOf(a.progress) - progressOrder.indexOf(b.progress));
   }
@@ -658,7 +691,7 @@ export class DataService {
       return {
         id: frontmatter.id ?? file.basename,
         name: String(frontmatter.name ?? ''),
-        versionId: frontmatter.versionId ?? '',
+        appVersionLinks: parseProjectLinks(frontmatter.appVersionLinks),
         manager: frontmatter.manager ?? '',
         responsiblePerson: frontmatter.responsiblePerson ?? '',
         projectLink: frontmatter.projectLink ?? '',
@@ -690,7 +723,7 @@ export class DataService {
 
   async createProject(data: {
     name: string;
-    versionId: string;
+    appVersionLinks?: ProjectLink[];
     manager?: string;
     responsiblePerson?: string;
     projectLink?: string;
@@ -721,7 +754,7 @@ export class DataService {
     const project: Project = {
       id,
       name: data.name,
-      versionId: data.versionId,
+      appVersionLinks: data.appVersionLinks || [],
       manager: data.manager || '',
       responsiblePerson: data.responsiblePerson || '',
       projectLink: data.projectLink || '',
@@ -754,7 +787,7 @@ export class DataService {
     const frontmatter = createFrontmatter({
       id: project.id,
       name: project.name,
-      versionId: project.versionId,
+      appVersionLinks: project.appVersionLinks,
       manager: project.manager,
       responsiblePerson: project.responsiblePerson,
       projectLink: project.projectLink,
@@ -833,7 +866,7 @@ export class DataService {
     const frontmatter = createFrontmatter({
       id: updatedProject.id,
       name: updatedProject.name,
-      versionId: updatedProject.versionId,
+      appVersionLinks: updatedProject.appVersionLinks,
       manager: updatedProject.manager,
       responsiblePerson: updatedProject.responsiblePerson,
       projectLink: updatedProject.projectLink,
@@ -1033,6 +1066,7 @@ export class DataService {
       ...record,
       responsiblePerson: record.responsiblePerson || '',
       progressHistory: record.progressHistory.map((h) => `${h.progress}@${h.changedAt}`),
+      appVersionLinks: record.appVersionLinks || [],
     } as Record<string, unknown>);
     const existingFile = await this.findEntityFileById<Project>(this.getProjectsFolder(), this.parseProjectFile, record.id);
     if (existingFile) {

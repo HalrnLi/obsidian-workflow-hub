@@ -1,4 +1,4 @@
-import { Menu, Modal, App as ObsidianApp, Setting, TFile, normalizePath, Notice } from 'obsidian';
+import { Menu, Modal, App as ObsidianApp, Setting, Notice } from 'obsidian';
 import AppVersionManagerPlugin from '../main';
 import {
   Project,
@@ -8,7 +8,6 @@ import {
   getProgressColors,
   App,
   TEST_STAGES,
-  parseDateInput,
   getLastProgress,
   getNextStageInfo,
   isProjectInPreRelease,
@@ -82,11 +81,17 @@ export class TableView {
       let cmp = 0;
 
       switch (column) {
-        case 'versionNumber': {
-          const versionA = this.versions.find((v) => v.id === a.versionId);
-          const versionB = this.versions.find((v) => v.id === b.versionId);
-          const aStr = versionA?.versionNumber || '';
-          const bStr = versionB?.versionNumber || '';
+        case 'appVersion': {
+          // 按第一个关联的 APP 名称 + 版本号排序
+          const getAppVersionLabel = (p: Project): string => {
+            if (p.appVersionLinks.length === 0) return '';
+            const link = p.appVersionLinks[0];
+            const app = this.apps.find((a) => a.id === link.appId);
+            const version = this.versions.find((v) => v.id === link.versionId);
+            return `${app?.name || ''}/${version?.versionNumber || ''}`;
+          };
+          const aStr = getAppVersionLabel(a);
+          const bStr = getAppVersionLabel(b);
           if (aStr === '' && bStr === '') break;
           if (aStr === '') return 1;
           if (bStr === '') return -1;
@@ -162,7 +167,7 @@ export class TableView {
 
     const columns: TableColumn[] = [
       { key: 'name', label: '项目名称', width: '150px' },
-      { key: 'versionNumber', label: '版本号', width: '100px', sortable: true },
+      { key: 'appVersion', label: 'APP / 版本', width: '150px', sortable: true },
       { key: 'manager', label: '项目经理', width: '100px', sortable: true },
       { key: 'features', label: '特性', width: '150px', sortable: true },
       { key: 'spec', label: '配置组件/规格', width: '150px' },
@@ -215,7 +220,6 @@ export class TableView {
   private renderRow(tbody: HTMLElement, project: Project, columns: TableColumn[]) {
     const row = tbody.createEl('tr');
 
-    // 添加高亮样式
     if (this.isProjectHighlighted(project)) {
       row.addClass('avm-highlighted-row');
     }
@@ -225,14 +229,11 @@ export class TableView {
       row.addClass('avm-overdue-row');
     }
 
-    // 预发布行高亮
     const lastProgress = getLastProgress(this.plugin.settings.progressStages);
     const isPreRelease = isProjectInPreRelease(project, this.plugin.settings.preReleaseRound, lastProgress);
     if (isPreRelease) {
       row.addClass('avm-pre-release-row');
     }
-
-    const version = this.versions.find((v) => v.id === project.versionId);
 
     const nextStageInfo = getNextStageInfo(project);
 
@@ -244,9 +245,21 @@ export class TableView {
           td.createDiv({ cls: 'avm-cell-name', text: project.name });
           break;
 
-        case 'versionNumber':
-          td.createDiv({ text: version?.versionNumber || '-' });
+        case 'appVersion': {
+          const container = td.createDiv({ cls: 'avm-cell-app-version' });
+          if (project.appVersionLinks.length === 0) {
+            container.createSpan({ text: '-' });
+          } else {
+            project.appVersionLinks.forEach((link) => {
+              const app = this.apps.find((a) => a.id === link.appId);
+              const version = this.versions.find((v) => v.id === link.versionId);
+              const appLabel = app?.name || '(未知)';
+              const verLabel = version?.versionNumber || '(未知)';
+              container.createDiv({ cls: 'avm-cell-app-version-item', text: `${appLabel} / ${verLabel}` });
+            });
+          }
           break;
+        }
 
         case 'manager':
           td.createDiv({ text: project.manager || '-' });
@@ -281,7 +294,6 @@ export class TableView {
         }
         case 'todos': {
           const todoBadge = td.createDiv({ cls: 'avm-todo-badge', text: '📋' });
-          // 点击通过右键菜单「项目待办」入口
           this.getTodoStats(project.id)
             .then((stats) => {
               if (stats.total > 0) {

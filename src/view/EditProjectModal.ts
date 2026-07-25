@@ -1,6 +1,7 @@
 import { Modal, App as ObsidianApp, Setting } from 'obsidian';
-import { Version, Project, ProjectProgress, getProgressOrder, App, ProgressStage } from '../types';
+import { Version, Project, ProjectLink, ProjectProgress, getProgressOrder, App, ProgressStage } from '../types';
 import { createSaveButtons } from './ModalUtils';
+import { AppVersionLinksEditor } from './components/AppVersionLinksEditor';
 
 export class EditProjectModal extends Modal {
   project: Project;
@@ -9,7 +10,6 @@ export class EditProjectModal extends Modal {
   versions: Version[];
   progressStages: ProgressStage[];
   responsiblePersons: string[];
-  versionLabelFn?: (v: Version, app?: App) => string;
 
   constructor(
     app: ObsidianApp,
@@ -19,7 +19,6 @@ export class EditProjectModal extends Modal {
     progressStages: ProgressStage[],
     responsiblePersons: string[],
     onSubmit: (data: Partial<Project>) => void,
-    options?: { versionLabelFn?: (v: Version, app?: App) => string },
   ) {
     super(app);
     this.project = project;
@@ -28,7 +27,6 @@ export class EditProjectModal extends Modal {
     this.progressStages = progressStages;
     this.responsiblePersons = responsiblePersons;
     this.onSubmit = onSubmit;
-    this.versionLabelFn = options?.versionLabelFn;
   }
 
   onOpen() {
@@ -39,7 +37,7 @@ export class EditProjectModal extends Modal {
 
     const data = {
       name: this.project.name,
-      versionId: this.project.versionId,
+      appVersionLinks: [...this.project.appVersionLinks],
       manager: this.project.manager,
       responsiblePerson: this.project.responsiblePerson,
       projectLink: this.project.projectLink,
@@ -52,27 +50,18 @@ export class EditProjectModal extends Modal {
 
     new Setting(contentEl).setName('项目名称 *').addText((text) => text.setValue(data.name).onChange((value) => (data.name = value)));
 
-    new Setting(contentEl).setName('所属版本').addDropdown((dropdown) => {
-      this.versions.forEach((version) => {
-        const app = this.apps.find((a) => a.id === version.appId);
-        const label = this.versionLabelFn ? this.versionLabelFn(version, app) : version.versionNumber;
-        dropdown.addOption(version.id, label);
-      });
-      if (data.versionId) {
-        dropdown.setValue(data.versionId);
-      }
-      dropdown.onChange((value) => (data.versionId = value));
-    });
+    // APP/版本关联 — 多关联选择
+    const linksContainer = contentEl.createDiv({ cls: 'avm-links-editor-container' });
+    new AppVersionLinksEditor(linksContainer, this.apps, this.versions, data.appVersionLinks);
 
     new Setting(contentEl).setName('项目经理').addText((text) => text.setValue(data.manager).onChange((value) => (data.manager = value)));
 
-    // 负责人下拉选择，从插件配置中读取可选列表
+    // 负责人下拉选择
     new Setting(contentEl).setName('负责人').addDropdown((dropdown) => {
       dropdown.addOption('', '无');
       this.responsiblePersons.forEach((person) => {
         dropdown.addOption(person, person);
       });
-      // 若当前值不在配置列表中（如已被删除），仍保留该选项以便显示
       if (data.responsiblePerson && !this.responsiblePersons.includes(data.responsiblePerson)) {
         dropdown.addOption(data.responsiblePerson, `${data.responsiblePerson} (已删除)`);
       }
@@ -107,11 +96,10 @@ export class EditProjectModal extends Modal {
       .setName('项目需求')
       .addTextArea((text) => text.setValue(data.requirements).onChange((value) => (data.requirements = value)));
 
-    // 提测计划时间入口按钮
     createSaveButtons(
       contentEl,
       () => {
-        if (data.name && data.versionId) {
+        if (data.name) {
           this.onSubmit(data);
           this.close();
         }
@@ -119,6 +107,7 @@ export class EditProjectModal extends Modal {
       () => this.close(),
     );
   }
+
 
   onClose() {
     this.contentEl.empty();

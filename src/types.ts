@@ -33,10 +33,17 @@ export const DEFAULT_PROGRESS_STAGES: ProgressStage[] = [
   { name: '已发布', color: '#10b981' },
 ];
 
+/** 项目关联的 APP+版本对（一个项目可关联多个 APP，每个 APP 对应一个版本） */
+export interface ProjectLink {
+  appId: string;
+  versionId: string;
+}
+
 export interface Project {
   id: string;
   name: string;
-  versionId: string;
+  /** 项目关联的 APP+版本列表（为空表示未关联任何 APP） */
+  appVersionLinks: ProjectLink[];
   manager: string;
   responsiblePerson: string;
   projectLink: string;

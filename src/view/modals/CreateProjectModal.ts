@@ -1,10 +1,11 @@
 import { Modal, App as ObsidianApp, Setting } from 'obsidian';
-import { ProjectProgress, ProgressStage, getProgressOrder, getFirstProgress } from '../../types';
+import { ProjectLink, ProjectProgress, ProgressStage, getProgressOrder, getFirstProgress, App, Version } from '../../types';
 import { createActionButtons } from '../ModalUtils';
+import { AppVersionLinksEditor } from '../components/AppVersionLinksEditor';
 
 export interface CreateProjectData {
   name: string;
-  versionId: string;
+  appVersionLinks: ProjectLink[];
   manager: string;
   responsiblePerson: string;
   projectLink: string;
@@ -16,14 +17,23 @@ export interface CreateProjectData {
 }
 
 export class CreateProjectModal extends Modal {
-  versionId: string;
+  apps: App[];
+  versions: Version[];
   progressStages: ProgressStage[];
   responsiblePersons: string[];
   onSubmit: (data: CreateProjectData) => void;
 
-  constructor(app: ObsidianApp, versionId: string, progressStages: ProgressStage[], responsiblePersons: string[], onSubmit: (data: CreateProjectData) => void) {
+  constructor(
+    app: ObsidianApp,
+    apps: App[],
+    versions: Version[],
+    progressStages: ProgressStage[],
+    responsiblePersons: string[],
+    onSubmit: (data: CreateProjectData) => void,
+  ) {
     super(app);
-    this.versionId = versionId;
+    this.apps = apps;
+    this.versions = versions;
     this.progressStages = progressStages;
     this.responsiblePersons = responsiblePersons;
     this.onSubmit = onSubmit;
@@ -38,7 +48,7 @@ export class CreateProjectModal extends Modal {
     const firstProgress = getFirstProgress(this.progressStages);
     const data: CreateProjectData = {
       name: '',
-      versionId: this.versionId,
+      appVersionLinks: [],
       manager: '',
       responsiblePerson: '',
       projectLink: '',
@@ -53,9 +63,13 @@ export class CreateProjectModal extends Modal {
       .setName('项目名称 *')
       .addText((text) => text.setPlaceholder('输入项目名称').onChange((value) => (data.name = value)));
 
+    // APP/版本关联（可选）
+    const linksContainer = contentEl.createDiv({ cls: 'avm-links-editor-container' });
+    new AppVersionLinksEditor(linksContainer, this.apps, this.versions, data.appVersionLinks);
+
     new Setting(contentEl).setName('项目经理').addText((text) => text.onChange((value) => (data.manager = value)));
 
-    // 负责人下拉选择，从插件配置中读取可选列表
+    // 负责人下拉选择
     new Setting(contentEl).setName('负责人').addDropdown((dropdown) => {
       dropdown.addOption('', '无');
       this.responsiblePersons.forEach((person) => {
@@ -104,6 +118,7 @@ export class CreateProjectModal extends Modal {
       onCancel: () => this.close(),
     });
   }
+
 
   onClose() {
     this.contentEl.empty();
