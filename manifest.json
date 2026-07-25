@@ -1,0 +1,10 @@
+{
+  "id": "obsidian-workflow-hub",
+  "name": "工作流中心",
+  "version": "1.0.0",
+  "minAppVersion": "1.10.1",
+  "description": "项目版本管理 + 全局待办与分类管理（合并自 APP Version Manager 与 todolist）",
+  "author": "",
+  "authorUrl": "",
+  "isDesktopOnly": true
+}
