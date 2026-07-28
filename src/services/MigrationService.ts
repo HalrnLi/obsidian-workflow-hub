@@ -193,7 +193,7 @@ export class MigrationService {
     for (const file of files) {
       if (file.path.startsWith(prefix)) {
         const rel = file.path.substring(prefix.length);
-        const content = await this.plugin.app.vault.read(file);
+        const content = await this.plugin.app.vault.adapter.read(file.path);
         const dstPath = `${dst}/${rel}`;
         const dstDir = dstPath.substring(0, dstPath.lastIndexOf('/'));
         if (dstDir) await this.ensureVaultFolder(dstDir);

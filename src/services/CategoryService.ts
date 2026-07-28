@@ -190,7 +190,7 @@ export class CategoryService {
       for (const file of this.plugin.app.vault.getMarkdownFiles()) {
         if (file.path.startsWith(prefix)) {
           try {
-            const content = await this.plugin.app.vault.read(file);
+            const content = await this.plugin.app.vault.adapter.read(file.path);
             const c = this.parseCategoryContent(content);
             if (c) categories.push(c);
           } catch (e) {

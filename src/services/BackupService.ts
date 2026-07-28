@@ -166,7 +166,7 @@ export class BackupService {
       const file = this.app.vault.getAbstractFileByPath(backupPath);
       if (!(file instanceof TFile)) return false;
 
-      const content = await this.app.vault.read(file);
+      const content = await this.app.vault.adapter.read(file.path);
       return await this.restoreFromContent(content, rollback);
     } catch (error) {
       console.error('[AppVersionManager] Restore failed, rolling back changes.', error);

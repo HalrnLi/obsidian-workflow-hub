@@ -37700,13 +37700,6 @@ var AppVersionManagerView = class extends import_obsidian24.ItemView {
     const addSection = (title) => {
       content.createEl("h4", { text: title, cls: "avm-readonly-section" });
     };
-    addSection("\u57FA\u672C\u4FE1\u606F");
-    addLine("\u9879\u76EE\u540D\u79F0", project.name);
-    addLine("\u9879\u76EE\u7ECF\u7406", project.manager);
-    addLine("\u8D1F\u8D23\u4EBA", project.responsiblePerson);
-    addLine("\u5F53\u524D\u8FDB\u5EA6", project.progress);
-    addLine("\u9879\u76EE\u94FE\u63A5", project.projectLink);
-    addLine("\u7EC4\u4EF6\u5E93\u94FE\u63A5", project.componentLink);
     if (project.appVersionLinks.length > 0) {
       addSection("\u5173\u8054 APP/\u7248\u672C");
       project.appVersionLinks.forEach((link) => {
@@ -37759,10 +37752,6 @@ var AppVersionManagerView = class extends import_obsidian24.ItemView {
       }
     } catch (e) {
     }
-    addSection("\u5143\u6570\u636E");
-    addLine("\u521B\u5EFA\u65F6\u95F4", project.createdAt);
-    addLine("\u66F4\u65B0\u65F6\u95F4", project.updatedAt);
-    addLine("\u7248\u672C\u53F7", String(project.version));
   }
   getFilteredProjects() {
     let projects = this.projects;
@@ -38601,7 +38590,7 @@ var DataService = class {
     try {
       const ctime = file.stat.ctime;
       const mtime = file.stat.mtime;
-      const content = "readContent" in file ? await file.readContent() : await this.app.vault.read(file);
+      const content = "readContent" in file ? await file.readContent() : await this.app.vault.adapter.read(file.path);
       const frontmatter = parseFrontmatter(content);
       if (!frontmatter)
         return null;
@@ -38816,7 +38805,7 @@ var DataService = class {
     try {
       const ctime = file.stat.ctime;
       const mtime = file.stat.mtime;
-      const content = "readContent" in file ? await file.readContent() : await this.app.vault.read(file);
+      const content = "readContent" in file ? await file.readContent() : await this.app.vault.adapter.read(file.path);
       const frontmatter = parseFrontmatter(content);
       if (!frontmatter)
         return null;
@@ -38977,7 +38966,8 @@ var DataService = class {
     try {
       const ctime = file.stat.ctime;
       const mtime = file.stat.mtime;
-      const content = "readContent" in file ? await file.readContent() : await this.app.vault.read(file);
+      const filePath = file.path;
+      const content = await this.app.vault.adapter.read(filePath);
       const frontmatter = parseFrontmatter(content);
       if (!frontmatter)
         return null;
@@ -39436,7 +39426,7 @@ var BackupService = class {
       const file = this.app.vault.getAbstractFileByPath(backupPath);
       if (!(file instanceof import_obsidian28.TFile))
         return false;
-      const content = await this.app.vault.read(file);
+      const content = await this.app.vault.adapter.read(file.path);
       return await this.restoreFromContent(content, rollback);
     } catch (error) {
       console.error("[AppVersionManager] Restore failed, rolling back changes.", error);
@@ -39719,7 +39709,7 @@ var TodoService = class {
       for (const file of this.plugin.app.vault.getMarkdownFiles()) {
         if (file.path.startsWith(prefix)) {
           try {
-            const content = await this.plugin.app.vault.read(file);
+            const content = await this.plugin.app.vault.adapter.read(file.path);
             const todo = this.parseTodoContent(content);
             if (todo)
               todos.push(todo);
@@ -40206,7 +40196,7 @@ var CategoryService = class {
       for (const file of this.plugin.app.vault.getMarkdownFiles()) {
         if (file.path.startsWith(prefix)) {
           try {
-            const content = await this.plugin.app.vault.read(file);
+            const content = await this.plugin.app.vault.adapter.read(file.path);
             const c = this.parseCategoryContent(content);
             if (c)
               categories.push(c);
@@ -40423,7 +40413,7 @@ var MigrationService = class {
     for (const file of files) {
       if (file.path.startsWith(prefix)) {
         const rel = file.path.substring(prefix.length);
-        const content = await this.plugin.app.vault.read(file);
+        const content = await this.plugin.app.vault.adapter.read(file.path);
         const dstPath = `${dst}/${rel}`;
         const dstDir = dstPath.substring(0, dstPath.lastIndexOf("/"));
         if (dstDir)
@@ -41284,12 +41274,20 @@ var COMMON = `
 }
 .avm-link-small:hover { text-decoration: underline; }
 
+.avm-project-features {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  white-space: pre-wrap;
+}
+
 .avm-project-requirements {
   font-size: 12px;
   color: var(--text-muted);
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--background-modifier-border);
+  white-space: pre-wrap;
 }
 
 /* Pre-release banner */
@@ -41871,6 +41869,7 @@ var COMMON = `
   flex: 1;
   color: var(--text-normal);
   word-break: break-word;
+  white-space: pre-wrap;
 }
 
 /* ============ \u5F85\u529E\u53CC\u680F\u5E03\u5C40 ============ */
@@ -42822,6 +42821,7 @@ var AppVersionManagerPlugin = class extends import_obsidian31.Plugin {
     this.saveSettingsQueue = Promise.resolve();
   }
   async onload() {
+    var _a, _b;
     await this.loadSettings();
     this.injectStyles();
     this.dataService = new DataService(this.app, this);
@@ -42837,6 +42837,7 @@ var AppVersionManagerPlugin = class extends import_obsidian31.Plugin {
         new import_obsidian31.Notice("\u6570\u636E\u8FC1\u79FB\u5931\u8D25\uFF0C\u8BF7\u67E5\u770B\u63A7\u5236\u53F0\u3002\u53EF\u5728\u8BBE\u7F6E\u4E2D\u91CD\u8BD5\u3002");
       });
     }
+    (_b = (_a = this.app.workspace).unregisterViewType) == null ? void 0 : _b.call(_a, VIEW_TYPE_APP_VERSION_MANAGER);
     this.registerView(VIEW_TYPE_APP_VERSION_MANAGER, (leaf) => new AppVersionManagerView(leaf, this));
     this.addRibbonIcon("layers", "\u5DE5\u4F5C\u6D41\u4E2D\u5FC3", () => {
       this.activateView();

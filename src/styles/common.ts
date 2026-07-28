@@ -290,12 +290,20 @@ export const COMMON = `
 }
 .avm-link-small:hover { text-decoration: underline; }
 
+.avm-project-features {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  white-space: pre-wrap;
+}
+
 .avm-project-requirements {
   font-size: 12px;
   color: var(--text-muted);
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--background-modifier-border);
+  white-space: pre-wrap;
 }
 
 /* Pre-release banner */
@@ -877,6 +885,7 @@ export const COMMON = `
   flex: 1;
   color: var(--text-normal);
   word-break: break-word;
+  white-space: pre-wrap;
 }
 
 /* ============ 待办双栏布局 ============ */

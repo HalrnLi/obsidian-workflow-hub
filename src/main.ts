@@ -43,6 +43,8 @@ export default class AppVersionManagerPlugin extends Plugin {
       });
     }
 
+    // Unregister first to handle plugin reload (hot-reload / duplicate install)
+    (this.app.workspace as any).unregisterViewType?.(VIEW_TYPE_APP_VERSION_MANAGER);
     this.registerView(VIEW_TYPE_APP_VERSION_MANAGER, (leaf) => new AppVersionManagerView(leaf, this));
 
     this.addRibbonIcon('layers', '工作流中心', () => {

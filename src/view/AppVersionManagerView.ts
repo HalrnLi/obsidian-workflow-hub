@@ -493,14 +493,14 @@ export class AppVersionManagerView extends ItemView {
       content.createEl('h4', { text: title, cls: 'avm-readonly-section' });
     };
 
-    // 基本信息
-    addSection('基本信息');
-    addLine('项目名称', project.name);
-    addLine('项目经理', project.manager);
-    addLine('负责人', project.responsiblePerson);
-    addLine('当前进度', project.progress);
-    addLine('项目链接', project.projectLink);
-    addLine('组件库链接', project.componentLink);
+    // 基本信息（已隐藏）
+    // addSection('基本信息');
+    // addLine('项目名称', project.name);
+    // addLine('项目经理', project.manager);
+    // addLine('负责人', project.responsiblePerson);
+    // addLine('当前进度', project.progress);
+    // addLine('项目链接', project.projectLink);
+    // addLine('组件库链接', project.componentLink);
 
     // APP/版本关联
     if (project.appVersionLinks.length > 0) {
@@ -576,11 +576,11 @@ export class AppVersionManagerView extends ItemView {
       // ignore
     }
 
-    // 元数据
-    addSection('元数据');
-    addLine('创建时间', project.createdAt);
-    addLine('更新时间', project.updatedAt);
-    addLine('版本号', String(project.version));
+    // 元数据（已隐藏）
+    // addSection('元数据');
+    // addLine('创建时间', project.createdAt);
+    // addLine('更新时间', project.updatedAt);
+    // addLine('版本号', String(project.version));
   }
 
   private getFilteredProjects(): Project[] {

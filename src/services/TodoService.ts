@@ -204,7 +204,7 @@ export class TodoService {
       for (const file of this.plugin.app.vault.getMarkdownFiles()) {
         if (file.path.startsWith(prefix)) {
           try {
-            const content = await this.plugin.app.vault.read(file);
+            const content = await this.plugin.app.vault.adapter.read(file.path);
             const todo = this.parseTodoContent(content);
             if (todo) todos.push(todo);
           } catch (e) {

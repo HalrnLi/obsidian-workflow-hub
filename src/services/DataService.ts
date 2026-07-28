@@ -140,7 +140,8 @@ export class DataService {
     try {
       const ctime = file.stat.ctime;
       const mtime = file.stat.mtime;
-      const content = 'readContent' in file ? await file.readContent() : await this.app.vault.read(file);
+      // Use vault.adapter.read to bypass Obsidian's cache (fixes plugin reload issue)
+      const content = 'readContent' in file ? await file.readContent() : await this.app.vault.adapter.read(file.path);
       const frontmatter = parseFrontmatter(content);
       if (!frontmatter) return null;
       return extractAppFields(frontmatter, file.basename, ctime, mtime);
@@ -404,7 +405,8 @@ export class DataService {
     try {
       const ctime = file.stat.ctime;
       const mtime = file.stat.mtime;
-      const content = 'readContent' in file ? await file.readContent() : await this.app.vault.read(file);
+      // Use vault.adapter.read to bypass Obsidian's cache (fixes plugin reload issue)
+      const content = 'readContent' in file ? await file.readContent() : await this.app.vault.adapter.read(file.path);
       const frontmatter = parseFrontmatter(content);
       if (!frontmatter) return null;
       return extractVersionFields(frontmatter, ctime, mtime);
@@ -600,7 +602,9 @@ export class DataService {
     try {
       const ctime = file.stat.ctime;
       const mtime = file.stat.mtime;
-      const content = 'readContent' in file ? await file.readContent() : await this.app.vault.read(file);
+      // Use vault.adapter.read to bypass Obsidian's cache (fixes plugin reload issue)
+      const filePath = file.path;
+      const content = await this.app.vault.adapter.read(filePath);
       const frontmatter = parseFrontmatter(content);
       if (!frontmatter) return null;
       return extractProjectFields(frontmatter, ctime, mtime, getFirstProgress(this.plugin.settings.progressStages));
