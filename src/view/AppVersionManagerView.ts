@@ -36,12 +36,13 @@ export class AppVersionManagerView extends ItemView {
   /** 项目子 Tab：进行中 / 已发布 */
   projectSubTab: 'active' | 'archived' = 'active';
   savedFilters: SavedFilter[] = [];
-  currentFilter: { progress: ProjectProgress | null; keyword: string; appId: string | null; versionId: string | null } =
+  currentFilter: { progress: ProjectProgress | null; keyword: string; appId: string | null; versionId: string | null; responsiblePerson: string | null } =
     {
       progress: null,
       keyword: '',
       appId: null,
       versionId: null,
+      responsiblePerson: null,
     };
   importExportService: ImportExportService;
   private todoTabView: TodoTabView | null = null;
@@ -308,6 +309,23 @@ export class AppVersionManagerView extends ItemView {
       this.renderMainView();
     });
 
+    // 负责人过滤
+    const personFilter = filterBar.createEl('select', { cls: 'avm-select' });
+    personFilter.createEl('option', { value: '', text: '全部负责人' });
+    // 获取所有不重复的负责人列表
+    const persons = [...new Set(this.projects.map((p) => p.responsiblePerson).filter((p) => p))].sort();
+    persons.forEach((person) => {
+      const option = personFilter.createEl('option', { value: person, text: person });
+      if (person === this.currentFilter.responsiblePerson) {
+        option.selected = true;
+      }
+    });
+    personFilter.addEventListener('change', (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      this.currentFilter.responsiblePerson = value || null;
+      this.renderMainView();
+    });
+
     const filterActions = filterBar.createDiv({ cls: 'avm-filter-actions' });
 
     new ButtonComponent(filterActions)
@@ -477,7 +495,13 @@ export class AppVersionManagerView extends ItemView {
       .setIcon('arrow-left')
       .setButtonText('返回')
       .onClick(() => this.onCloseProjectDetail());
-    header.createEl('h3', { text: project.name });
+    const titleEl = header.createEl('h3', { text: project.name, cls: 'avm-project-detail-title' });
+    titleEl.setAttribute('title', '点击复制');
+    titleEl.style.cursor = 'pointer';
+    titleEl.addEventListener('click', async () => {
+      await navigator.clipboard.writeText(project.name);
+      new Notice('已复制: ' + project.name);
+    });
 
     // 只读信息区
     const content = wrapper.createDiv({ cls: 'avm-project-readonly' });
@@ -493,14 +517,32 @@ export class AppVersionManagerView extends ItemView {
       content.createEl('h4', { text: title, cls: 'avm-readonly-section' });
     };
 
-    // 基本信息（已隐藏）
-    // addSection('基本信息');
-    // addLine('项目名称', project.name);
-    // addLine('项目经理', project.manager);
-    // addLine('负责人', project.responsiblePerson);
-    // addLine('当前进度', project.progress);
-    // addLine('项目链接', project.projectLink);
-    // addLine('组件库链接', project.componentLink);
+    // 基本信息
+    if (project.manager || project.responsiblePerson || project.progress || project.projectLink || project.componentLink) {
+      addSection('基本信息');
+      addLine('项目经理', project.manager);
+      addLine('负责人', project.responsiblePerson);
+      addLine('当前进度', project.progress);
+      // 可点击的链接
+      if (project.projectLink) {
+        const row = content.createDiv({ cls: 'avm-readonly-row' });
+        row.createSpan({ cls: 'avm-readonly-label', text: '项目链接' });
+        const linkEl = row.createEl('a', { cls: 'avm-readonly-value avm-link', text: '🔗 打开', attr: { href: '#', title: project.projectLink } });
+        linkEl.addEventListener('click', (e) => {
+          e.preventDefault();
+          openExternalLink(project.projectLink);
+        });
+      }
+      if (project.componentLink) {
+        const row = content.createDiv({ cls: 'avm-readonly-row' });
+        row.createSpan({ cls: 'avm-readonly-label', text: '组件库链接' });
+        const linkEl = row.createEl('a', { cls: 'avm-readonly-value avm-link', text: '🔗 打开', attr: { href: '#', title: project.componentLink } });
+        linkEl.addEventListener('click', (e) => {
+          e.preventDefault();
+          openExternalLink(project.componentLink);
+        });
+      }
+    }
 
     // APP/版本关联
     if (project.appVersionLinks.length > 0) {
@@ -546,34 +588,80 @@ export class AppVersionManagerView extends ItemView {
       addLine('实际发布时间', project.actualReleaseTime);
     }
 
-    // 进度历史
+    // 项目信息条目
+    if (project.projectInfo.length > 0) {
+      addSection('项目信息');
+      project.projectInfo.forEach((item, i) => {
+        if (item.link) {
+          const row = content.createDiv({ cls: 'avm-readonly-row' });
+          row.createSpan({ cls: 'avm-readonly-label', text: `条目 ${i + 1}` });
+          const linkEl = row.createEl('a', { cls: 'avm-readonly-value avm-link', text: item.description, attr: { href: item.link, target: '_blank' } });
+          linkEl.addEventListener('click', (e) => {
+            e.preventDefault();
+            openExternalLink(item.link);
+          });
+        } else {
+          addLine(`条目 ${i + 1}`, item.description);
+        }
+      });
+    }
+
+    // 项目待办列表
+    try {
+      const todos = await this.plugin.todoService.getTodosByProject(project.id);
+      if (todos.length > 0) {
+        addSection('项目待办');
+        todos.forEach((todo) => {
+          const row = content.createDiv({ cls: 'avm-readonly-row' });
+          // 复选框
+          const checkbox = row.createEl('input', { attr: { type: 'checkbox' } });
+          checkbox.checked = todo.status === 'done';
+          checkbox.style.marginRight = '8px';
+          checkbox.style.cursor = 'pointer';
+          checkbox.addEventListener('change', async () => {
+            const newStatus = checkbox.checked ? 'done' : 'todo';
+            try {
+              await this.plugin.todoService.update(todo.id, { status: newStatus });
+              await this.refresh();
+            } catch (e) {
+              new Notice('更新失败: ' + (e instanceof Error ? e.message : String(e)));
+              checkbox.checked = !checkbox.checked; // 回滚
+            }
+          });
+          // 待办内容
+          const contentSpan = row.createSpan({
+            cls: 'avm-readonly-value',
+            text: todo.content
+          });
+          if (todo.status === 'done') {
+            contentSpan.style.textDecoration = 'line-through';
+            contentSpan.style.opacity = '0.6';
+          }
+          // 链接（如果有）
+          if (todo.link) {
+            const linkEl = row.createEl('a', {
+              cls: 'avm-link',
+              text: '🔗',
+              attr: { href: '#', title: todo.link }
+            });
+            linkEl.style.marginLeft = '6px';
+            linkEl.addEventListener('click', (e) => {
+              e.preventDefault();
+              openExternalLink(todo.link);
+            });
+          }
+        });
+      }
+    } catch {
+      // ignore
+    }
+
+    // 进度历史（放在最后，属于次要信息）
     if (project.progressHistory.length > 0) {
       addSection('进度历史');
       project.progressHistory.forEach((h) => {
         addLine(h.progress, h.changedAt);
       });
-    }
-
-    // 项目信息条目
-    if (project.projectInfo.length > 0) {
-      addSection('项目信息');
-      project.projectInfo.forEach((item, i) => {
-        const text = item.link ? `${item.description} (${item.link})` : item.description;
-        addLine(`条目 ${i + 1}`, text);
-      });
-    }
-
-    // 待办统计
-    try {
-      const stats = await this.plugin.todoService.getProjectTodoStats(project.id);
-      if (stats.total > 0) {
-        addSection('项目待办');
-        addLine('待办总数', `${stats.total}`);
-        addLine('已完成', `${stats.completed}`);
-        addLine('逾期', `${stats.overdue}`);
-      }
-    } catch {
-      // ignore
     }
 
     // 元数据（已隐藏）
@@ -607,6 +695,11 @@ export class AppVersionManagerView extends ItemView {
     // 按进度过滤
     if (this.currentFilter.progress) {
       projects = projects.filter((p) => p.progress === this.currentFilter.progress);
+    }
+
+    // 按负责人过滤
+    if (this.currentFilter.responsiblePerson) {
+      projects = projects.filter((p) => p.responsiblePerson === this.currentFilter.responsiblePerson);
     }
 
     // 按关键词搜索
@@ -670,6 +763,7 @@ export class AppVersionManagerView extends ItemView {
       appId: this.currentFilter.appId,
       versionId: this.currentFilter.versionId,
       progress: this.currentFilter.progress,
+      responsiblePerson: this.currentFilter.responsiblePerson,
       keyword: this.currentFilter.keyword,
     };
     this.savedFilters.push(filter);
@@ -684,6 +778,7 @@ export class AppVersionManagerView extends ItemView {
     this.currentFilter.appId = filter.appId;
     this.currentFilter.versionId = filter.versionId;
     this.currentFilter.progress = filter.progress;
+    this.currentFilter.responsiblePerson = filter.responsiblePerson;
     this.currentFilter.keyword = filter.keyword;
 
     await this.refresh();

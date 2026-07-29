@@ -33896,7 +33896,8 @@ var DEFAULT_SETTINGS = {
   migrationCompleted: false,
   inheritanceLastRun: null,
   migrationError: null,
-  oldDataPath: "app-version-manager"
+  oldDataPath: "app-version-manager",
+  tableColumns: ["name", "appVersion", "manager", "responsiblePerson", "features", "spec", "progress", "currentRound", "nextStage", "nextStageTime", "links", "todos"]
 };
 function getProgressOrder(stages) {
   return stages.map((s) => s.name);
@@ -35060,10 +35061,11 @@ var TableView = class {
     const table = tableWrapper.createEl("table", { cls: "avm-table" });
     const thead = table.createEl("thead");
     const headerRow = thead.createEl("tr");
-    const columns = [
+    const allColumns = [
       { key: "name", label: "\u9879\u76EE\u540D\u79F0", width: "150px" },
       { key: "appVersion", label: "APP / \u7248\u672C", width: "150px", sortable: true },
       { key: "manager", label: "\u9879\u76EE\u7ECF\u7406", width: "100px", sortable: true },
+      { key: "responsiblePerson", label: "\u8D1F\u8D23\u4EBA", width: "100px", sortable: true },
       { key: "features", label: "\u7279\u6027", width: "150px", sortable: true },
       { key: "spec", label: "\u914D\u7F6E\u7EC4\u4EF6/\u89C4\u683C", width: "150px" },
       { key: "progress", label: "\u8FDB\u5EA6", width: "120px", sortable: true },
@@ -35073,6 +35075,8 @@ var TableView = class {
       { key: "links", label: "\u94FE\u63A5", width: "120px" },
       { key: "todos", label: "\u5F85\u529E", width: "100px" }
     ];
+    const enabledColumns = this.plugin.settings.tableColumns || [];
+    const columns = allColumns.filter((col) => enabledColumns.includes(col.key));
     columns.forEach((col) => {
       const th = headerRow.createEl("th");
       th.style.width = col.width;
@@ -35141,6 +35145,9 @@ var TableView = class {
         }
         case "manager":
           td.createDiv({ text: project.manager || "-" });
+          break;
+        case "responsiblePerson":
+          td.createDiv({ text: project.responsiblePerson || "-" });
           break;
         case "features":
           td.createDiv({ cls: "avm-cell-features", text: project.features || "-" });
@@ -37349,7 +37356,8 @@ var AppVersionManagerView = class extends import_obsidian24.ItemView {
       progress: null,
       keyword: "",
       appId: null,
-      versionId: null
+      versionId: null,
+      responsiblePerson: null
     };
     this.todoTabView = null;
     this.detailProjectId = null;
@@ -37567,6 +37575,20 @@ var AppVersionManagerView = class extends import_obsidian24.ItemView {
       this.currentFilter.progress = value || null;
       this.renderMainView();
     });
+    const personFilter = filterBar.createEl("select", { cls: "avm-select" });
+    personFilter.createEl("option", { value: "", text: "\u5168\u90E8\u8D1F\u8D23\u4EBA" });
+    const persons = [...new Set(this.projects.map((p) => p.responsiblePerson).filter((p) => p))].sort();
+    persons.forEach((person) => {
+      const option = personFilter.createEl("option", { value: person, text: person });
+      if (person === this.currentFilter.responsiblePerson) {
+        option.selected = true;
+      }
+    });
+    personFilter.addEventListener("change", (e) => {
+      const value = e.target.value;
+      this.currentFilter.responsiblePerson = value || null;
+      this.renderMainView();
+    });
     const filterActions = filterBar.createDiv({ cls: "avm-filter-actions" });
     new import_obsidian24.ButtonComponent(filterActions).setIcon("save").setTooltip("\u4FDD\u5B58\u7B5B\u9009\u6761\u4EF6").onClick(() => this.showSaveFilterModal());
     if (this.savedFilters.length > 0) {
@@ -37688,7 +37710,13 @@ var AppVersionManagerView = class extends import_obsidian24.ItemView {
   async renderProjectDetailContent(wrapper, project) {
     const header = wrapper.createDiv({ cls: "avm-project-detail-header" });
     new import_obsidian24.ButtonComponent(header).setIcon("arrow-left").setButtonText("\u8FD4\u56DE").onClick(() => this.onCloseProjectDetail());
-    header.createEl("h3", { text: project.name });
+    const titleEl = header.createEl("h3", { text: project.name, cls: "avm-project-detail-title" });
+    titleEl.setAttribute("title", "\u70B9\u51FB\u590D\u5236");
+    titleEl.style.cursor = "pointer";
+    titleEl.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(project.name);
+      new import_obsidian24.Notice("\u5DF2\u590D\u5236: " + project.name);
+    });
     const content = wrapper.createDiv({ cls: "avm-project-readonly" });
     const addLine = (label, value) => {
       if (!value)
@@ -37700,6 +37728,30 @@ var AppVersionManagerView = class extends import_obsidian24.ItemView {
     const addSection = (title) => {
       content.createEl("h4", { text: title, cls: "avm-readonly-section" });
     };
+    if (project.manager || project.responsiblePerson || project.progress || project.projectLink || project.componentLink) {
+      addSection("\u57FA\u672C\u4FE1\u606F");
+      addLine("\u9879\u76EE\u7ECF\u7406", project.manager);
+      addLine("\u8D1F\u8D23\u4EBA", project.responsiblePerson);
+      addLine("\u5F53\u524D\u8FDB\u5EA6", project.progress);
+      if (project.projectLink) {
+        const row = content.createDiv({ cls: "avm-readonly-row" });
+        row.createSpan({ cls: "avm-readonly-label", text: "\u9879\u76EE\u94FE\u63A5" });
+        const linkEl = row.createEl("a", { cls: "avm-readonly-value avm-link", text: "\u{1F517} \u6253\u5F00", attr: { href: "#", title: project.projectLink } });
+        linkEl.addEventListener("click", (e) => {
+          e.preventDefault();
+          openExternalLink(project.projectLink);
+        });
+      }
+      if (project.componentLink) {
+        const row = content.createDiv({ cls: "avm-readonly-row" });
+        row.createSpan({ cls: "avm-readonly-label", text: "\u7EC4\u4EF6\u5E93\u94FE\u63A5" });
+        const linkEl = row.createEl("a", { cls: "avm-readonly-value avm-link", text: "\u{1F517} \u6253\u5F00", attr: { href: "#", title: project.componentLink } });
+        linkEl.addEventListener("click", (e) => {
+          e.preventDefault();
+          openExternalLink(project.componentLink);
+        });
+      }
+    }
     if (project.appVersionLinks.length > 0) {
       addSection("\u5173\u8054 APP/\u7248\u672C");
       project.appVersionLinks.forEach((link) => {
@@ -37729,28 +37781,71 @@ var AppVersionManagerView = class extends import_obsidian24.ItemView {
       addLine("B4\u7CFB\u7EDF\u6D4B\u8BD5", project.b4SystemTestTime);
       addLine("\u5B9E\u9645\u53D1\u5E03\u65F6\u95F4", project.actualReleaseTime);
     }
+    if (project.projectInfo.length > 0) {
+      addSection("\u9879\u76EE\u4FE1\u606F");
+      project.projectInfo.forEach((item, i) => {
+        if (item.link) {
+          const row = content.createDiv({ cls: "avm-readonly-row" });
+          row.createSpan({ cls: "avm-readonly-label", text: `\u6761\u76EE ${i + 1}` });
+          const linkEl = row.createEl("a", { cls: "avm-readonly-value avm-link", text: item.description, attr: { href: item.link, target: "_blank" } });
+          linkEl.addEventListener("click", (e) => {
+            e.preventDefault();
+            openExternalLink(item.link);
+          });
+        } else {
+          addLine(`\u6761\u76EE ${i + 1}`, item.description);
+        }
+      });
+    }
+    try {
+      const todos = await this.plugin.todoService.getTodosByProject(project.id);
+      if (todos.length > 0) {
+        addSection("\u9879\u76EE\u5F85\u529E");
+        todos.forEach((todo) => {
+          const row = content.createDiv({ cls: "avm-readonly-row" });
+          const checkbox = row.createEl("input", { attr: { type: "checkbox" } });
+          checkbox.checked = todo.status === "done";
+          checkbox.style.marginRight = "8px";
+          checkbox.style.cursor = "pointer";
+          checkbox.addEventListener("change", async () => {
+            const newStatus = checkbox.checked ? "done" : "todo";
+            try {
+              await this.plugin.todoService.update(todo.id, { status: newStatus });
+              await this.refresh();
+            } catch (e) {
+              new import_obsidian24.Notice("\u66F4\u65B0\u5931\u8D25: " + (e instanceof Error ? e.message : String(e)));
+              checkbox.checked = !checkbox.checked;
+            }
+          });
+          const contentSpan = row.createSpan({
+            cls: "avm-readonly-value",
+            text: todo.content
+          });
+          if (todo.status === "done") {
+            contentSpan.style.textDecoration = "line-through";
+            contentSpan.style.opacity = "0.6";
+          }
+          if (todo.link) {
+            const linkEl = row.createEl("a", {
+              cls: "avm-link",
+              text: "\u{1F517}",
+              attr: { href: "#", title: todo.link }
+            });
+            linkEl.style.marginLeft = "6px";
+            linkEl.addEventListener("click", (e) => {
+              e.preventDefault();
+              openExternalLink(todo.link);
+            });
+          }
+        });
+      }
+    } catch (e) {
+    }
     if (project.progressHistory.length > 0) {
       addSection("\u8FDB\u5EA6\u5386\u53F2");
       project.progressHistory.forEach((h) => {
         addLine(h.progress, h.changedAt);
       });
-    }
-    if (project.projectInfo.length > 0) {
-      addSection("\u9879\u76EE\u4FE1\u606F");
-      project.projectInfo.forEach((item, i) => {
-        const text = item.link ? `${item.description} (${item.link})` : item.description;
-        addLine(`\u6761\u76EE ${i + 1}`, text);
-      });
-    }
-    try {
-      const stats = await this.plugin.todoService.getProjectTodoStats(project.id);
-      if (stats.total > 0) {
-        addSection("\u9879\u76EE\u5F85\u529E");
-        addLine("\u5F85\u529E\u603B\u6570", `${stats.total}`);
-        addLine("\u5DF2\u5B8C\u6210", `${stats.completed}`);
-        addLine("\u903E\u671F", `${stats.overdue}`);
-      }
-    } catch (e) {
     }
   }
   getFilteredProjects() {
@@ -37769,6 +37864,9 @@ var AppVersionManagerView = class extends import_obsidian24.ItemView {
     }
     if (this.currentFilter.progress) {
       projects = projects.filter((p) => p.progress === this.currentFilter.progress);
+    }
+    if (this.currentFilter.responsiblePerson) {
+      projects = projects.filter((p) => p.responsiblePerson === this.currentFilter.responsiblePerson);
     }
     if (this.currentFilter.keyword) {
       projects = this.filterProjectsByKeyword(projects, this.currentFilter.keyword);
@@ -37825,6 +37923,7 @@ var AppVersionManagerView = class extends import_obsidian24.ItemView {
       appId: this.currentFilter.appId,
       versionId: this.currentFilter.versionId,
       progress: this.currentFilter.progress,
+      responsiblePerson: this.currentFilter.responsiblePerson,
       keyword: this.currentFilter.keyword
     };
     this.savedFilters.push(filter);
@@ -37838,6 +37937,7 @@ var AppVersionManagerView = class extends import_obsidian24.ItemView {
     this.currentFilter.appId = filter.appId;
     this.currentFilter.versionId = filter.versionId;
     this.currentFilter.progress = filter.progress;
+    this.currentFilter.responsiblePerson = filter.responsiblePerson;
     this.currentFilter.keyword = filter.keyword;
     await this.refresh();
   }
@@ -39688,6 +39788,7 @@ var TodoService = class {
   async readAllTodosFromDisk() {
     const folder = this.getTodosFolder();
     const todos = [];
+    const seenIds = /* @__PURE__ */ new Set();
     if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
       if (!(0, import_fs3.existsSync)(folder))
         return [];
@@ -39697,8 +39798,10 @@ var TodoService = class {
           if ((0, import_fs3.statSync)(full).isFile() && item.endsWith(".md")) {
             const content = (0, import_fs3.readFileSync)(full, "utf-8");
             const todo = this.parseTodoContent(content);
-            if (todo)
+            if (todo && !seenIds.has(todo.id)) {
+              seenIds.add(todo.id);
               todos.push(todo);
+            }
           }
         } catch (e) {
           console.error("[WorkflowHub] Failed to parse todo file:", full, e);
@@ -39711,8 +39814,10 @@ var TodoService = class {
           try {
             const content = await this.plugin.app.vault.adapter.read(file.path);
             const todo = this.parseTodoContent(content);
-            if (todo)
+            if (todo && !seenIds.has(todo.id)) {
+              seenIds.add(todo.id);
               todos.push(todo);
+            }
           } catch (e) {
             console.error("[WorkflowHub] Failed to parse todo file:", file.path, e);
           }
@@ -39826,7 +39931,17 @@ var TodoService = class {
     if (!this.loaded)
       await this.loadAllIndexes();
     const set = this.byProject.get(projectId);
-    return set ? [...set] : [];
+    if (!set)
+      return [];
+    const seen = /* @__PURE__ */ new Set();
+    const result = [];
+    for (const todo of set) {
+      if (!seen.has(todo.id)) {
+        seen.add(todo.id);
+        result.push(todo);
+      }
+    }
+    return result;
   }
   async getUnboundTodos() {
     if (!this.loaded)
@@ -41279,6 +41394,15 @@ var COMMON = `
   color: var(--text-muted);
   margin-top: 4px;
   white-space: pre-wrap;
+}
+
+.avm-project-detail-title {
+  cursor: pointer;
+  user-select: all;
+  transition: color 0.2s;
+}
+.avm-project-detail-title:hover {
+  color: var(--interactive-accent);
 }
 
 .avm-project-requirements {
@@ -43018,6 +43142,39 @@ var AppVersionManagerSettingTab = class extends import_obsidian31.PluginSettingT
         await this.plugin.saveSettings();
       })
     );
+    containerEl.createEl("h3", { text: "\u9879\u76EE\u5217\u8868\u663E\u793A\u5217" });
+    new import_obsidian31.Setting(containerEl).setName("\u663E\u793A\u5217\u914D\u7F6E").setDesc("\u81EA\u5B9A\u4E49\u9879\u76EE\u5217\u8868\u4E2D\u663E\u793A\u54EA\u4E9B\u5217");
+    const columnOptions = [
+      { key: "name", label: "\u9879\u76EE\u540D\u79F0" },
+      { key: "appVersion", label: "APP / \u7248\u672C" },
+      { key: "manager", label: "\u9879\u76EE\u7ECF\u7406" },
+      { key: "responsiblePerson", label: "\u8D1F\u8D23\u4EBA" },
+      { key: "features", label: "\u7279\u6027" },
+      { key: "spec", label: "\u914D\u7F6E\u7EC4\u4EF6/\u89C4\u683C" },
+      { key: "progress", label: "\u8FDB\u5EA6" },
+      { key: "currentRound", label: "\u5F53\u524D\u9636\u6BB5" },
+      { key: "nextStage", label: "\u4E0B\u4E00\u9636\u6BB5" },
+      { key: "nextStageTime", label: "\u4E0B\u4E00\u9636\u6BB5\u65F6\u95F4" },
+      { key: "links", label: "\u94FE\u63A5" },
+      { key: "todos", label: "\u5F85\u529E" }
+    ];
+    const currentColumns = this.plugin.settings.tableColumns || [];
+    columnOptions.forEach((opt) => {
+      new import_obsidian31.Setting(containerEl).setName(opt.label).addToggle(
+        (toggle) => toggle.setValue(currentColumns.includes(opt.key)).onChange(async (value) => {
+          const cols = [...this.plugin.settings.tableColumns || []];
+          if (value && !cols.includes(opt.key)) {
+            cols.push(opt.key);
+          } else if (!value && cols.includes(opt.key)) {
+            const idx = cols.indexOf(opt.key);
+            if (idx >= 0)
+              cols.splice(idx, 1);
+          }
+          this.plugin.settings.tableColumns = cols;
+          await this.plugin.saveSettings();
+        })
+      );
+    });
     containerEl.createEl("h3", { text: "\u9884\u53D1\u5E03\u8F6E\u6B21\u8BBE\u7F6E" });
     new import_obsidian31.Setting(containerEl).setName("\u9884\u53D1\u5E03\u8F6E\u6B21").setDesc(
       "\u8BBE\u7F6E\u54EA\u4E2A B \u8F6E\u4E3A\u9884\u53D1\u5E03\u8F6E\u6B21\u3002\u5230\u8FBE\u8BE5\u8F6E\u6B21\u540E\uFF0C\u9879\u76EE\u5361\u7247\u5C06\u663E\u793A\u9884\u53D1\u5E03\u63D0\u793A\u3002\u89E6\u53D1\u6761\u4EF6\uFF1A\u4E0A\u4E00\u8F6E\u7CFB\u7EDF\u6D4B\u8BD5\u65E5\u671F\u5DF2\u5230\u8FBE/\u5DF2\u8FC7\uFF0C\u76F4\u5230\u9879\u76EE\u72B6\u6001\u7F6E\u4E3A\u5DF2\u53D1\u5E03\u3002"

@@ -170,6 +170,7 @@ export interface SavedFilter {
   appId: string | null;
   versionId: string | null;
   progress: ProjectProgress | null;
+  responsiblePerson: string | null;
   keyword: string;
 }
 
@@ -203,6 +204,8 @@ export interface PluginSettings {
   migrationError: string | null;
   /** 旧 AVM 数据路径（支持 vault 相对路径或绝对路径） */
   oldDataPath: string;
+  /** 项目列表中显示的列 */
+  tableColumns: string[];
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -224,6 +227,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   inheritanceLastRun: null,
   migrationError: null,
   oldDataPath: 'app-version-manager',
+  tableColumns: ['name', 'appVersion', 'manager', 'responsiblePerson', 'features', 'spec', 'progress', 'currentRound', 'nextStage', 'nextStageTime', 'links', 'todos'],
 };
 
 export function getProgressOrder(stages: ProgressStage[]): ProjectProgress[] {

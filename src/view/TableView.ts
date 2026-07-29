@@ -165,10 +165,12 @@ export class TableView {
     const thead = table.createEl('thead');
     const headerRow = thead.createEl('tr');
 
-    const columns: TableColumn[] = [
+    // 所有可用列定义
+    const allColumns: TableColumn[] = [
       { key: 'name', label: '项目名称', width: '150px' },
       { key: 'appVersion', label: 'APP / 版本', width: '150px', sortable: true },
       { key: 'manager', label: '项目经理', width: '100px', sortable: true },
+      { key: 'responsiblePerson', label: '负责人', width: '100px', sortable: true },
       { key: 'features', label: '特性', width: '150px', sortable: true },
       { key: 'spec', label: '配置组件/规格', width: '150px' },
       { key: 'progress', label: '进度', width: '120px', sortable: true },
@@ -178,6 +180,10 @@ export class TableView {
       { key: 'links', label: '链接', width: '120px' },
       { key: 'todos', label: '待办', width: '100px' },
     ];
+
+    // 根据设置过滤显示的列
+    const enabledColumns = this.plugin.settings.tableColumns || [];
+    const columns = allColumns.filter((col) => enabledColumns.includes(col.key));
 
     columns.forEach((col) => {
       const th = headerRow.createEl('th');
@@ -263,6 +269,10 @@ export class TableView {
 
         case 'manager':
           td.createDiv({ text: project.manager || '-' });
+          break;
+
+        case 'responsiblePerson':
+          td.createDiv({ text: project.responsiblePerson || '-' });
           break;
 
         case 'features':

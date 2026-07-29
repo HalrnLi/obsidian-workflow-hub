@@ -297,6 +297,15 @@ export const COMMON = `
   white-space: pre-wrap;
 }
 
+.avm-project-detail-title {
+  cursor: pointer;
+  user-select: all;
+  transition: color 0.2s;
+}
+.avm-project-detail-title:hover {
+  color: var(--interactive-accent);
+}
+
 .avm-project-requirements {
   font-size: 12px;
   color: var(--text-muted);

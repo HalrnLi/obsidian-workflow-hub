@@ -184,6 +184,7 @@ export class TodoService {
   private async readAllTodosFromDisk(): Promise<Todo[]> {
     const folder = this.getTodosFolder();
     const todos: Todo[] = [];
+    const seenIds = new Set<string>();
 
     if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
       if (!existsSync(folder)) return [];
@@ -193,7 +194,10 @@ export class TodoService {
           if (statSync(full).isFile() && item.endsWith('.md')) {
             const content = readFileSync(full, 'utf-8');
             const todo = this.parseTodoContent(content);
-            if (todo) todos.push(todo);
+            if (todo && !seenIds.has(todo.id)) {
+              seenIds.add(todo.id);
+              todos.push(todo);
+            }
           }
         } catch (e) {
           console.error('[WorkflowHub] Failed to parse todo file:', full, e);
@@ -206,7 +210,10 @@ export class TodoService {
           try {
             const content = await this.plugin.app.vault.adapter.read(file.path);
             const todo = this.parseTodoContent(content);
-            if (todo) todos.push(todo);
+            if (todo && !seenIds.has(todo.id)) {
+              seenIds.add(todo.id);
+              todos.push(todo);
+            }
           } catch (e) {
             console.error('[WorkflowHub] Failed to parse todo file:', file.path, e);
           }
@@ -318,7 +325,17 @@ export class TodoService {
   async getTodosByProject(projectId: string): Promise<Todo[]> {
     if (!this.loaded) await this.loadAllIndexes();
     const set = this.byProject.get(projectId);
-    return set ? [...set] : [];
+    if (!set) return [];
+    // Deduplicate by todo ID (in case of duplicate files)
+    const seen = new Set<string>();
+    const result: Todo[] = [];
+    for (const todo of set) {
+      if (!seen.has(todo.id)) {
+        seen.add(todo.id);
+        result.push(todo);
+      }
+    }
+    return result;
   }
 
   async getUnboundTodos(): Promise<Todo[]> {

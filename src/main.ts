@@ -299,6 +299,48 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
           }),
       );
 
+    containerEl.createEl('h3', { text: '项目列表显示列' });
+
+    new Setting(containerEl)
+      .setName('显示列配置')
+      .setDesc('自定义项目列表中显示哪些列')
+
+    const columnOptions: Array<{ key: string; label: string }> = [
+      { key: 'name', label: '项目名称' },
+      { key: 'appVersion', label: 'APP / 版本' },
+      { key: 'manager', label: '项目经理' },
+      { key: 'responsiblePerson', label: '负责人' },
+      { key: 'features', label: '特性' },
+      { key: 'spec', label: '配置组件/规格' },
+      { key: 'progress', label: '进度' },
+      { key: 'currentRound', label: '当前阶段' },
+      { key: 'nextStage', label: '下一阶段' },
+      { key: 'nextStageTime', label: '下一阶段时间' },
+      { key: 'links', label: '链接' },
+      { key: 'todos', label: '待办' },
+    ];
+
+    const currentColumns = this.plugin.settings.tableColumns || [];
+    columnOptions.forEach((opt) => {
+      new Setting(containerEl)
+        .setName(opt.label)
+        .addToggle((toggle) =>
+          toggle
+            .setValue(currentColumns.includes(opt.key))
+            .onChange(async (value) => {
+              const cols = [...(this.plugin.settings.tableColumns || [])];
+              if (value && !cols.includes(opt.key)) {
+                cols.push(opt.key);
+              } else if (!value && cols.includes(opt.key)) {
+                const idx = cols.indexOf(opt.key);
+                if (idx >= 0) cols.splice(idx, 1);
+              }
+              this.plugin.settings.tableColumns = cols;
+              await this.plugin.saveSettings();
+            }),
+        );
+    });
+
     containerEl.createEl('h3', { text: '预发布轮次设置' });
 
     new Setting(containerEl)
