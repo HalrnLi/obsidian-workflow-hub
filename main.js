@@ -34027,29 +34027,21 @@ function parseDateInput(input) {
   }
   return null;
 }
-var PREVIOUS_SYSTEM_TEST_MAP = {
-  B2: "b1SystemTestTime",
-  B3: "b2SystemTestTime",
-  B4: "b3SystemTestTime"
-};
-function isProjectInPreRelease(project, preReleaseRound, lastProgress) {
+var B2_AND_LATER_FIELDS = [
+  "b2SystemTestTime",
+  "b2IntegrationTestTime",
+  "b3SystemTestTime",
+  "b3IntegrationTestTime",
+  "b4SystemTestTime",
+  "b4IntegrationTestTime"
+];
+function isProjectInPreRelease(project, _preReleaseRound, lastProgress) {
   if (project.progress === lastProgress)
     return false;
-  const roundNum = parseInt(preReleaseRound.replace("B", ""), 10);
-  let triggerDate;
-  if (roundNum === 1) {
-    triggerDate = project.b1IntegrationTestTime;
-  } else {
-    const prevKey = PREVIOUS_SYSTEM_TEST_MAP[preReleaseRound];
-    triggerDate = prevKey ? project[prevKey] : void 0;
-  }
-  if (!triggerDate)
-    return false;
-  const date = new Date(triggerDate);
-  date.setHours(0, 0, 0, 0);
-  const today = /* @__PURE__ */ new Date();
-  today.setHours(0, 0, 0, 0);
-  return date <= today;
+  return B2_AND_LATER_FIELDS.some((field) => {
+    const val = project[field];
+    return val && val.trim() !== "";
+  });
 }
 function getCurrentBRound(project) {
   const nextInfo = getNextStageInfo(project);
@@ -34949,18 +34941,23 @@ function checkOverdue(project, stages, warningDays = 3) {
 
 // src/view/TableView.ts
 var TableView = class {
-  constructor(containerEl, plugin, projects, versions, apps, onRefresh = () => {
-  }, getTodoStats, onOpenTodos) {
+  constructor(containerEl, plugin, projects, versions, apps, callbacks, selectedProjectId = null) {
     this.sortState = { column: null, direction: "asc" };
     this.containerEl = containerEl;
     this.plugin = plugin;
     this.projects = projects;
     this.versions = versions;
     this.apps = apps;
-    this.onRefresh = onRefresh;
-    this.getTodoStats = getTodoStats;
-    this.onOpenTodos = onOpenTodos;
+    this.callbacks = callbacks;
+    this.selectedProjectId = selectedProjectId;
     this.render();
+  }
+  // Backward-compatible aliases
+  get onRefresh() {
+    return this.callbacks.onRefresh;
+  }
+  get getTodoStats() {
+    return this.callbacks.getTodoStats;
   }
   applySorting(projects) {
     if (!this.sortState.column) {
@@ -35112,6 +35109,9 @@ var TableView = class {
     if (this.isProjectHighlighted(project)) {
       row.addClass("avm-highlighted-row");
     }
+    if (this.selectedProjectId === project.id) {
+      row.addClass("avm-selected-row");
+    }
     const isOverdue = this.checkOverdue(project);
     if (isOverdue) {
       row.addClass("avm-overdue-row");
@@ -35230,7 +35230,11 @@ var TableView = class {
     });
     row.addEventListener("dblclick", (e) => {
       e.preventDefault();
-      this.onOpenTodos(project.id, project.name);
+      if (this.selectedProjectId === project.id) {
+        this.callbacks.onCloseDetail();
+      } else {
+        this.callbacks.onOpenDetail(project.id, project.name);
+      }
     });
   }
   checkOverdue(project) {
@@ -37364,6 +37368,9 @@ var AppVersionManagerView = class extends import_obsidian24.ItemView {
     this.detailTab = "info";
     this.searchDebounceTimer = null;
     this.autoRefreshTimer = null;
+    /** 保存当前列表滚动位置 */
+    this.savedScrollTop = 0;
+    this.savedScrollSelector = "";
     this.plugin = plugin;
     this.importExportService = new ImportExportService(this.app, this.plugin);
     this.loadSavedFilters();
@@ -37645,7 +37652,31 @@ var AppVersionManagerView = class extends import_obsidian24.ItemView {
       }, 180);
     });
   }
+  saveScrollPosition() {
+    const selectors = [".avm-table-view", ".avm-archived-list", ".avm-project-list"];
+    for (const sel of selectors) {
+      const el = this.mainEl.querySelector(sel);
+      if (el && el.scrollTop > 0) {
+        this.savedScrollTop = el.scrollTop;
+        this.savedScrollSelector = sel;
+        return;
+      }
+    }
+    this.savedScrollTop = 0;
+    this.savedScrollSelector = "";
+  }
+  restoreScrollPosition() {
+    if (this.savedScrollTop <= 0)
+      return;
+    requestAnimationFrame(() => {
+      const sel = this.savedScrollSelector || ".avm-table-view";
+      const el = this.mainEl.querySelector(sel);
+      if (el)
+        el.scrollTop = this.savedScrollTop;
+    });
+  }
   renderMainView() {
+    this.saveScrollPosition();
     this.mainEl.empty();
     this.mainEl.removeClass("avm-archived-main");
     this.mainEl.setAttribute("data-tab", this.currentTab);
@@ -37664,10 +37695,12 @@ var AppVersionManagerView = class extends import_obsidian24.ItemView {
       } else {
         this.renderArchivedView();
       }
+      this.restoreScrollPosition();
       return;
     }
     if (this.detailProjectId) {
       this.renderProjectWithDetail();
+      this.restoreScrollPosition();
       return;
     }
     const filteredProjects = this.getFilteredProjects();
@@ -37677,10 +37710,15 @@ var AppVersionManagerView = class extends import_obsidian24.ItemView {
       filteredProjects,
       this.versions,
       this.apps,
-      () => this.refresh(),
-      (projectId) => this.getTodoStats(projectId),
-      (projectId, projectName) => this.onOpenProjectDetail(projectId, projectName)
+      {
+        onRefresh: () => this.refresh(),
+        getTodoStats: (projectId) => this.getTodoStats(projectId),
+        onOpenDetail: (projectId, projectName) => this.onOpenProjectDetail(projectId, projectName),
+        onCloseDetail: () => this.onCloseProjectDetail()
+      },
+      this.detailProjectId
     );
+    this.restoreScrollPosition();
   }
   /** 渲染项目列表 + 右侧滑出详情面板 */
   renderProjectWithDetail() {
@@ -37696,9 +37734,13 @@ var AppVersionManagerView = class extends import_obsidian24.ItemView {
       filteredProjects,
       this.versions,
       this.apps,
-      () => this.refresh(),
-      (projectId2) => this.getTodoStats(projectId2),
-      (projectId2, projectName) => this.onOpenProjectDetail(projectId2, projectName)
+      {
+        onRefresh: () => this.refresh(),
+        getTodoStats: (projectId2) => this.getTodoStats(projectId2),
+        onOpenDetail: (projectId2, projectName) => this.onOpenProjectDetail(projectId2, projectName),
+        onCloseDetail: () => this.onCloseProjectDetail()
+      },
+      projectId
     );
     const detailEl = wrapper.createDiv({ cls: "avm-project-detail-pane" });
     const project = this.projects.find((p) => p.id === projectId);
@@ -42778,6 +42820,8 @@ var VIEWS = `
 .avm-table tr.avm-overdue-row:hover { background: rgba(239, 68, 68, 0.1); }
 .avm-table tr.avm-highlighted-row { background: rgba(239, 68, 68, 0.1); border-left: 3px solid #ef4444; }
 .avm-table tr.avm-highlighted-row:hover { background: rgba(239, 68, 68, 0.15); }
+.avm-table tr.avm-selected-row { background: rgba(99, 102, 241, 0.08); border-left: 3px solid var(--interactive-accent); }
+.avm-table tr.avm-selected-row:hover { background: rgba(99, 102, 241, 0.14); }
 
 .avm-cell-name { font-weight: 500; }
 .avm-cell-links { display: flex; gap: 8px; }

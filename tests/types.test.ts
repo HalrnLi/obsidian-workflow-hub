@@ -197,7 +197,7 @@ describe('isProjectInPreRelease', () => {
     expect(isProjectInPreRelease(project, 'B3', lastProgress)).toBe(false);
   });
 
-  it('returns true once the previous round system test date has passed (B3 -> b2SystemTestTime)', () => {
+  it('returns true when b2SystemTestTime is set (regardless of date)', () => {
     const project = createMockProject({
       progress: '需求分解',
       b2SystemTestTime: '2026-05-01', // past
@@ -205,28 +205,39 @@ describe('isProjectInPreRelease', () => {
     expect(isProjectInPreRelease(project, 'B3', lastProgress)).toBe(true);
   });
 
-  it('returns false when the previous round system test date is still in the future (B3)', () => {
+  it('returns true when b2SystemTestTime is in the future (still highlights)', () => {
     const project = createMockProject({
       progress: '需求分解',
-      b2SystemTestTime: '2026-06-01',
+      b2SystemTestTime: '2026-06-01', // future
+    });
+    expect(isProjectInPreRelease(project, 'B3', lastProgress)).toBe(true);
+  });
+
+  it('returns true when any B2+ round field is set', () => {
+    const project = createMockProject({
+      progress: '需求分解',
+      b3IntegrationTestTime: '2027-01-01', // far future
+    });
+    expect(isProjectInPreRelease(project, 'B3', lastProgress)).toBe(true);
+  });
+
+  it('returns false when no B2+ round field is set', () => {
+    const project = createMockProject({
+      progress: '需求分解',
+      b1SystemTestTime: '2026-01-01',
     });
     expect(isProjectInPreRelease(project, 'B3', lastProgress)).toBe(false);
   });
 
-  it('returns false when the trigger date is not set', () => {
-    const project = createMockProject({ progress: '需求分解' });
-    expect(isProjectInPreRelease(project, 'B3', lastProgress)).toBe(false);
-  });
-
-  it('uses B1 integration test as the trigger for the B1 pre-release round', () => {
+  it('returns false when only B1 fields are set (B1 pre-release round)', () => {
     const project = createMockProject({
       progress: '需求分解',
       b1IntegrationTestTime: '2026-05-01',
     });
-    expect(isProjectInPreRelease(project, 'B1', lastProgress)).toBe(true);
+    expect(isProjectInPreRelease(project, 'B1', lastProgress)).toBe(false);
   });
 
-  it('uses the previous round system test for B4 (b3SystemTestTime)', () => {
+  it('returns true when b3SystemTestTime is set (B4 pre-release round)', () => {
     const project = createMockProject({
       progress: '需求分解',
       b3SystemTestTime: '2026-04-01',

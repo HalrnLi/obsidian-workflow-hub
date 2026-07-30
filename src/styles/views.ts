@@ -90,6 +90,8 @@ export const VIEWS = `
 .avm-table tr.avm-overdue-row:hover { background: rgba(239, 68, 68, 0.1); }
 .avm-table tr.avm-highlighted-row { background: rgba(239, 68, 68, 0.1); border-left: 3px solid #ef4444; }
 .avm-table tr.avm-highlighted-row:hover { background: rgba(239, 68, 68, 0.15); }
+.avm-table tr.avm-selected-row { background: rgba(99, 102, 241, 0.08); border-left: 3px solid var(--interactive-accent); }
+.avm-table tr.avm-selected-row:hover { background: rgba(99, 102, 241, 0.14); }
 
 .avm-cell-name { font-weight: 500; }
 .avm-cell-links { display: flex; gap: 8px; }

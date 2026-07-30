@@ -389,43 +389,30 @@ export function parseDateInput(input: string): string | null {
   return null; // 无法解析
 }
 
-// 预发布轮次的上一轮系统测试字段映射（key: Project 字段名）
-const PREVIOUS_SYSTEM_TEST_MAP: Record<string, string> = {
-  B2: 'b1SystemTestTime',
-  B3: 'b2SystemTestTime',
-  B4: 'b3SystemTestTime',
-};
+// B2 系统测试及之后的所有阶段字段（用于判断项目是否已进入预发布高亮）
+const B2_AND_LATER_FIELDS: string[] = [
+  'b2SystemTestTime',
+  'b2IntegrationTestTime',
+  'b3SystemTestTime',
+  'b3IntegrationTestTime',
+  'b4SystemTestTime',
+  'b4IntegrationTestTime',
+];
 
 /**
  * 判断项目是否已进入预发布状态。
- * 规则：上一轮系统测试日期已到达/已过，且项目未到最后一个进度阶段（已发布）。
- * 若上一轮系统测试日期未设置，则不触发。
+ * 规则：项目已进入 B2 系统测试或更后的阶段（任一轮次字段有值即视为已进入），
+ * 且项目未到最后一个进度阶段（已发布）。不比较日期，无论提测时间是否已过。
  */
-export function isProjectInPreRelease(project: Project, preReleaseRound: string, lastProgress: string): boolean {
+export function isProjectInPreRelease(project: Project, _preReleaseRound: string, lastProgress: string): boolean {
   // 已发布的项目不显示预发布提示
   if (project.progress === lastProgress) return false;
 
-  const roundNum = parseInt(preReleaseRound.replace('B', ''), 10);
-
-  let triggerDate: string | undefined;
-
-  if (roundNum === 1) {
-    // B1 为预发布轮次：以 B1 集成测试日期为触发点
-    triggerDate = project.b1IntegrationTestTime;
-  } else {
-    // B2+ 为预发布轮次：以上一轮系统测试日期为触发点
-    const prevKey = PREVIOUS_SYSTEM_TEST_MAP[preReleaseRound];
-    triggerDate = prevKey ? ((project as any)[prevKey] as string) : undefined;
-  }
-
-  if (!triggerDate) return false;
-
-  const date = new Date(triggerDate);
-  date.setHours(0, 0, 0, 0);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  return date <= today;
+  // 只要 B2 系统测试或更后的任一轮次字段有值，即视为已进入预发布阶段
+  return B2_AND_LATER_FIELDS.some((field) => {
+    const val = (project as any)[field];
+    return val && val.trim() !== '';
+  });
 }
 
 /**

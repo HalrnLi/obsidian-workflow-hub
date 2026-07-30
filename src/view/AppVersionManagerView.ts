@@ -410,7 +410,36 @@ export class AppVersionManagerView extends ItemView {
     });
   }
 
+  /** 保存当前列表滚动位置 */
+  private savedScrollTop: number = 0;
+  private savedScrollSelector: string = '';
+
+  private saveScrollPosition(): void {
+    // 查找实际的滚动容器（表格视图或归档列表）
+    const selectors = ['.avm-table-view', '.avm-archived-list', '.avm-project-list'];
+    for (const sel of selectors) {
+      const el = this.mainEl.querySelector(sel);
+      if (el && el.scrollTop > 0) {
+        this.savedScrollTop = el.scrollTop;
+        this.savedScrollSelector = sel;
+        return;
+      }
+    }
+    this.savedScrollTop = 0;
+    this.savedScrollSelector = '';
+  }
+
+  private restoreScrollPosition(): void {
+    if (this.savedScrollTop <= 0) return;
+    requestAnimationFrame(() => {
+      const sel = this.savedScrollSelector || '.avm-table-view';
+      const el = this.mainEl.querySelector(sel);
+      if (el) el.scrollTop = this.savedScrollTop;
+    });
+  }
+
   private renderMainView() {
+    this.saveScrollPosition();
     this.mainEl.empty();
     this.mainEl.removeClass('avm-archived-main');
     this.mainEl.setAttribute('data-tab', this.currentTab);
@@ -435,12 +464,14 @@ export class AppVersionManagerView extends ItemView {
       } else {
         this.renderArchivedView();
       }
+      this.restoreScrollPosition();
       return;
     }
 
     // === 项目 Tab：进行中子 Tab ===
     if (this.detailProjectId) {
       this.renderProjectWithDetail();
+      this.restoreScrollPosition();
       return;
     }
 
@@ -452,10 +483,16 @@ export class AppVersionManagerView extends ItemView {
       filteredProjects,
       this.versions,
       this.apps,
-      () => this.refresh(),
-      (projectId) => this.getTodoStats(projectId),
-      (projectId, projectName) => this.onOpenProjectDetail(projectId, projectName),
+      {
+        onRefresh: () => this.refresh(),
+        getTodoStats: (projectId) => this.getTodoStats(projectId),
+        onOpenDetail: (projectId, projectName) => this.onOpenProjectDetail(projectId, projectName),
+        onCloseDetail: () => this.onCloseProjectDetail(),
+      },
+      this.detailProjectId,
     );
+
+    this.restoreScrollPosition();
   }
 
   /** 渲染项目列表 + 右侧滑出详情面板 */
@@ -475,9 +512,13 @@ export class AppVersionManagerView extends ItemView {
       filteredProjects,
       this.versions,
       this.apps,
-      () => this.refresh(),
-      (projectId) => this.getTodoStats(projectId),
-      (projectId, projectName) => this.onOpenProjectDetail(projectId, projectName),
+      {
+        onRefresh: () => this.refresh(),
+        getTodoStats: (projectId) => this.getTodoStats(projectId),
+        onOpenDetail: (projectId, projectName) => this.onOpenProjectDetail(projectId, projectName),
+        onCloseDetail: () => this.onCloseProjectDetail(),
+      },
+      projectId,
     );
 
     const detailEl = wrapper.createDiv({ cls: 'avm-project-detail-pane' });

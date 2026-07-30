@@ -35,16 +35,26 @@ interface SortState {
   direction: 'asc' | 'desc';
 }
 
+interface TableViewCallbacks {
+  onRefresh: () => void;
+  getTodoStats: (projectId: string) => Promise<{ total: number; completed: number; overdue: number }>;
+  onOpenDetail: (projectId: string, projectName: string) => void;
+  onCloseDetail: () => void;
+}
+
 export class TableView {
   containerEl: HTMLElement;
   plugin: AppVersionManagerPlugin;
   projects: Project[];
   versions: Version[];
   apps: App[];
-  onRefresh: () => void;
-  getTodoStats: (projectId: string) => Promise<{ total: number; completed: number; overdue: number }>;
-  onOpenTodos: (projectId: string, projectName: string) => void;
+  private callbacks: TableViewCallbacks;
+  selectedProjectId: string | null;
   private sortState: SortState = { column: null, direction: 'asc' };
+  
+  // Backward-compatible aliases
+  get onRefresh() { return this.callbacks.onRefresh; }
+  get getTodoStats() { return this.callbacks.getTodoStats; }
 
   constructor(
     containerEl: HTMLElement,
@@ -52,18 +62,16 @@ export class TableView {
     projects: Project[],
     versions: Version[],
     apps: App[],
-    onRefresh: () => void = () => {},
-    getTodoStats: (projectId: string) => Promise<{ total: number; completed: number; overdue: number }>,
-    onOpenTodos: (projectId: string, projectName: string) => void,
+    callbacks: TableViewCallbacks,
+    selectedProjectId: string | null = null,
   ) {
     this.containerEl = containerEl;
     this.plugin = plugin;
     this.projects = projects;
     this.versions = versions;
     this.apps = apps;
-    this.onRefresh = onRefresh;
-    this.getTodoStats = getTodoStats;
-    this.onOpenTodos = onOpenTodos;
+    this.callbacks = callbacks;
+    this.selectedProjectId = selectedProjectId;
 
     this.render();
   }
@@ -230,6 +238,11 @@ export class TableView {
       row.addClass('avm-highlighted-row');
     }
 
+    // 选中行高亮（当前打开详情的项目）
+    if (this.selectedProjectId === project.id) {
+      row.addClass('avm-selected-row');
+    }
+
     const isOverdue = this.checkOverdue(project);
     if (isOverdue) {
       row.addClass('avm-overdue-row');
@@ -366,7 +379,12 @@ export class TableView {
 
     row.addEventListener('dblclick', (e) => {
       e.preventDefault();
-      this.onOpenTodos(project.id, project.name);
+      // 如果双击的是已选中的项目，则关闭详情；否则打开详情
+      if (this.selectedProjectId === project.id) {
+        this.callbacks.onCloseDetail();
+      } else {
+        this.callbacks.onOpenDetail(project.id, project.name);
+      }
     });
   }
 
