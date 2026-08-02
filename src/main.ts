@@ -6,6 +6,7 @@ import { BackupService } from './services/BackupService';
 import { TodoService } from './services/TodoService';
 import { CategoryService } from './services/CategoryService';
 import { MigrationService } from './services/MigrationService';
+import { DataConfigService } from './services/DataConfigService';
 import { TodoInheritanceService } from './services/TodoInheritanceService';
 import { ReminderService } from './services/ReminderService';
 import { STYLES } from './styles';
@@ -18,9 +19,11 @@ export default class AppVersionManagerPlugin extends Plugin {
   backupService: BackupService;
   todoService: TodoService;
   categoryService: CategoryService;
+  dataConfigService: DataConfigService;
   private todoInheritanceService: TodoInheritanceService;
   reminderService: ReminderService;
   private saveSettingsQueue: Promise<void> = Promise.resolve();
+  private migrationPromise: Promise<void> | null = null;
 
   async onload() {
     await this.loadSettings();
@@ -28,6 +31,8 @@ export default class AppVersionManagerPlugin extends Plugin {
     this.injectStyles();
 
     this.dataService = new DataService(this.app, this);
+    this.dataConfigService = new DataConfigService(this);
+    await this.dataConfigService.load();
     this.backupService = new BackupService(this.app, this);
     this.todoService = new TodoService(this);
     this.categoryService = new CategoryService(this);
@@ -37,7 +42,7 @@ export default class AppVersionManagerPlugin extends Plugin {
     // 数据迁移：首次加载且未完成迁移时执行（见 MigrationService）
     if (!this.settings.migrationCompleted) {
       const migration = new MigrationService(this);
-      migration.run().catch((e) => {
+      this.migrationPromise = migration.run().catch((e) => {
         console.error('[WorkflowHub] 数据迁移失败:', e);
         new Notice('数据迁移失败，请查看控制台。可在设置中重试。');
       });
@@ -83,11 +88,25 @@ export default class AppVersionManagerPlugin extends Plugin {
       this.categoryService.initializeDefaults().catch((e) => console.error('[WorkflowHub] 初始化默认分类失败:', e));
       this.todoService.loadAllIndexes().catch((e) => console.error('[WorkflowHub] 加载待办索引失败:', e));
       this.todoInheritanceService.start();
+      // 注册 vault 事件监听，外部修改文件时自动失效索引
+      this.todoService.registerVaultEvents();
+      this.categoryService.registerVaultEvents();
     });
+  }
+
+  /** 等待迁移完成（视图加载数据前调用） */
+  async waitForMigration(): Promise<void> {
+    if (this.migrationPromise) {
+      await this.migrationPromise;
+      this.migrationPromise = null;
+    }
   }
 
   onunload() {
     (this.app.workspace as any).unregisterViewType?.(VIEW_TYPE_APP_VERSION_MANAGER);
+    // 注销 vault 事件监听，避免热重载后监听器累积
+    this.todoService.unregisterVaultEvents();
+    this.categoryService.unregisterVaultEvents();
     this.dataService.cache.destroy();
     this.backupService.clearBackupSchedule();
     this.todoInheritanceService.clear();
@@ -189,8 +208,14 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
             if (newPath !== this.plugin.settings.dataPath) {
               this.plugin.settings.dataPath = newPath;
               await this.plugin.saveSettings();
-              // 重新初始化数据服务以使用新路径
+              // 销毁旧 DataService 的缓存定时器，再初始化新路径的数据服务
+              this.plugin.dataService.cache.destroy();
               this.plugin.dataService = new DataService(this.app, this.plugin);
+              // 重置其他服务的路径状态
+              this.plugin.todoService.resetPath();
+              this.plugin.categoryService.resetPath();
+              this.plugin.dataConfigService.reset();
+              await this.plugin.dataConfigService.load();
             }
           }),
       );
@@ -330,7 +355,7 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
       { key: 'todos', label: '待办' },
     ];
 
-    const currentColumns = this.plugin.settings.tableColumns || [];
+    const currentColumns = this.plugin.dataConfigService.config.tableColumns || [];
     columnOptions.forEach((opt) => {
       new Setting(containerEl)
         .setName(opt.label)
@@ -338,15 +363,15 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
           toggle
             .setValue(currentColumns.includes(opt.key))
             .onChange(async (value) => {
-              const cols = [...(this.plugin.settings.tableColumns || [])];
+              const cols = [...(this.plugin.dataConfigService.config.tableColumns || [])];
               if (value && !cols.includes(opt.key)) {
                 cols.push(opt.key);
               } else if (!value && cols.includes(opt.key)) {
                 const idx = cols.indexOf(opt.key);
                 if (idx >= 0) cols.splice(idx, 1);
               }
-              this.plugin.settings.tableColumns = cols;
-              await this.plugin.saveSettings();
+              this.plugin.dataConfigService.config.tableColumns = cols;
+              await this.plugin.dataConfigService.save();
             }),
         );
     });
@@ -364,10 +389,10 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
         dropdown.addOption('B3系统测试', 'B3系统测试');
         dropdown.addOption('B4集成测试', 'B4集成测试');
         dropdown.addOption('B4系统测试', 'B4系统测试');
-        dropdown.setValue(this.plugin.settings.preReleaseRound);
+        dropdown.setValue(this.plugin.dataConfigService.config.preReleaseRound);
         dropdown.onChange(async (value) => {
-          this.plugin.settings.preReleaseRound = value;
-          await this.plugin.saveSettings();
+          this.plugin.dataConfigService.config.preReleaseRound = value;
+          await this.plugin.dataConfigService.save();
         });
       });
 
@@ -400,11 +425,11 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
 
     new Setting(containerEl).setName('添加新阶段').addButton((btn) =>
       btn.setButtonText('添加阶段').onClick(async () => {
-        const stages = this.plugin.settings.progressStages;
+        const stages = this.plugin.dataConfigService.config.progressStages;
         const newColor = this.generateRandomColor();
         stages.push({ name: `新阶段${stages.length + 1}`, color: newColor });
-        this.plugin.settings.progressStages = stages;
-        await this.plugin.saveSettings();
+        this.plugin.dataConfigService.config.progressStages = stages;
+        await this.plugin.dataConfigService.save();
         this.display();
       }),
     );
@@ -417,8 +442,8 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
           .setButtonText('重置')
           .setWarning()
           .onClick(async () => {
-            this.plugin.settings.progressStages = JSON.parse(JSON.stringify(DEFAULT_PROGRESS_STAGES));
-            await this.plugin.saveSettings();
+            this.plugin.dataConfigService.config.progressStages = JSON.parse(JSON.stringify(DEFAULT_PROGRESS_STAGES));
+            await this.plugin.dataConfigService.save();
             this.display();
           }),
       );
@@ -511,7 +536,7 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
   }
 
   private renderProgressStagesSettings(containerEl: HTMLElement) {
-    const stages = this.plugin.settings.progressStages;
+    const stages = this.plugin.dataConfigService.config.progressStages;
 
     stages.forEach((stage, index) => {
       const setting = new Setting(containerEl).setName(`阶段 ${index + 1}`).setClass('avm-progress-stage-setting');
@@ -522,16 +547,16 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
           .setPlaceholder('阶段名称')
           .onChange(async (value) => {
             stages[index].name = value;
-            this.plugin.settings.progressStages = stages;
-            await this.plugin.saveSettings();
+            this.plugin.dataConfigService.config.progressStages = stages;
+            await this.plugin.dataConfigService.save();
           }),
       );
 
       setting.addColorPicker((picker) =>
         picker.setValue(stage.color).onChange(async (value) => {
           stages[index].color = value;
-          this.plugin.settings.progressStages = stages;
-          await this.plugin.saveSettings();
+          this.plugin.dataConfigService.config.progressStages = stages;
+          await this.plugin.dataConfigService.save();
         }),
       );
 
@@ -543,8 +568,8 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
             .onClick(async () => {
               if (index > 0) {
                 [stages[index - 1], stages[index]] = [stages[index], stages[index - 1]];
-                this.plugin.settings.progressStages = stages;
-                await this.plugin.saveSettings();
+                this.plugin.dataConfigService.config.progressStages = stages;
+                await this.plugin.dataConfigService.save();
                 this.display();
               }
             }),
@@ -557,8 +582,8 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
             .onClick(async () => {
               if (index < stages.length - 1) {
                 [stages[index], stages[index + 1]] = [stages[index + 1], stages[index]];
-                this.plugin.settings.progressStages = stages;
-                await this.plugin.saveSettings();
+                this.plugin.dataConfigService.config.progressStages = stages;
+                await this.plugin.dataConfigService.save();
                 this.display();
               }
             }),
@@ -572,8 +597,8 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
           .onClick(async () => {
             if (stages.length > 1) {
               stages.splice(index, 1);
-              this.plugin.settings.progressStages = stages;
-              await this.plugin.saveSettings();
+              this.plugin.dataConfigService.config.progressStages = stages;
+              await this.plugin.dataConfigService.save();
               this.display();
             } else {
               new Notice('至少需要保留一个阶段');
@@ -584,7 +609,7 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
   }
 
   private renderDefaultTodosSettings(containerEl: HTMLElement) {
-    const todos = this.plugin.settings.defaultTodos;
+    const todos = this.plugin.dataConfigService.config.defaultTodos;
 
     todos.forEach((todo, index) => {
       const setting = new Setting(containerEl).setClass('avm-default-todo-setting');
@@ -595,7 +620,7 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
           .setPlaceholder('待办内容')
           .onChange(async (value) => {
             todos[index].content = value;
-            await this.plugin.saveSettings();
+            await this.plugin.dataConfigService.save();
           }),
       );
 
@@ -605,8 +630,8 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
           .setTooltip('删除')
           .onClick(async () => {
             todos.splice(index, 1);
-            this.plugin.settings.defaultTodos = todos;
-            await this.plugin.saveSettings();
+            this.plugin.dataConfigService.config.defaultTodos = todos;
+            await this.plugin.dataConfigService.save();
             this.display();
           }),
       );
@@ -615,15 +640,15 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName('添加默认待办').addButton((btn) =>
       btn.setButtonText('添加').onClick(async () => {
         todos.push({ content: '', link: '', dueDate: '' });
-        this.plugin.settings.defaultTodos = todos;
-        await this.plugin.saveSettings();
+        this.plugin.dataConfigService.config.defaultTodos = todos;
+        await this.plugin.dataConfigService.save();
         this.display();
       }),
     );
   }
 
   private renderResponsiblePersonsSettings(containerEl: HTMLElement) {
-    const persons = this.plugin.settings.responsiblePersons;
+    const persons = this.plugin.dataConfigService.config.responsiblePersons;
 
     persons.forEach((person, index) => {
       const setting = new Setting(containerEl).setClass('avm-responsible-person-setting');
@@ -634,8 +659,8 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
           .setPlaceholder('负责人姓名')
           .onChange(async (value) => {
             persons[index] = value;
-            this.plugin.settings.responsiblePersons = persons;
-            await this.plugin.saveSettings();
+            this.plugin.dataConfigService.config.responsiblePersons = persons;
+            await this.plugin.dataConfigService.save();
           }),
       );
 
@@ -645,8 +670,8 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
           .setTooltip('删除')
           .onClick(async () => {
             persons.splice(index, 1);
-            this.plugin.settings.responsiblePersons = persons;
-            await this.plugin.saveSettings();
+            this.plugin.dataConfigService.config.responsiblePersons = persons;
+            await this.plugin.dataConfigService.save();
             this.display();
           }),
       );
@@ -655,8 +680,8 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName('添加负责人').addButton((btn) =>
       btn.setButtonText('添加').onClick(async () => {
         persons.push('');
-        this.plugin.settings.responsiblePersons = persons;
-        await this.plugin.saveSettings();
+        this.plugin.dataConfigService.config.responsiblePersons = persons;
+        await this.plugin.dataConfigService.save();
         this.display();
       }),
     );

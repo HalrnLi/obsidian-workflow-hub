@@ -113,6 +113,8 @@ export class MigrationService {
       await this.plugin.saveSettings();
       await this.plugin.todoService.invalidateAll();
       await this.plugin.categoryService.invalidateAll();
+      // 失效 DataService 缓存，避免迁移后（尤其设置页手动重迁时）读到旧数据
+      this.plugin.dataService.cache.invalidate();
 
       this.log('info', '数据迁移完成');
     } catch (e) {
@@ -125,7 +127,8 @@ export class MigrationService {
 
   // ---------- 备份 ----------
   private async backupOriginalData(newDataPath: string, timestamp: number): Promise<void> {
-    const backupDir = `${newDataPath}/_migration_backup_${timestamp}`;
+    // 备份目录放在 vault 根目录（避免在 dataPath 内部，防止迁移覆盖备份）
+    const backupDir = `_migration_backup_${timestamp}`;
     this.log('info', `备份旧数据到 ${backupDir}`);
 
     try {
@@ -179,7 +182,7 @@ export class MigrationService {
       } else {
         const content = readFileSync(fullPath, 'utf-8');
         const dstPath = `${dst}/${item}`;
-        const dstDir = dstPath.substring(0, dstPath.lastIndexOf('/'));
+        const dstDir = dstPath.substring(0, Math.max(dstPath.lastIndexOf('/'), dstPath.lastIndexOf('\\')));
         if (dstDir) await this.ensureFolder(dstDir);
         await this.plugin.app.vault.create(dstPath, content).catch(() => {});
       }
@@ -195,7 +198,7 @@ export class MigrationService {
         const rel = file.path.substring(prefix.length);
         const content = await this.plugin.app.vault.adapter.read(file.path);
         const dstPath = `${dst}/${rel}`;
-        const dstDir = dstPath.substring(0, dstPath.lastIndexOf('/'));
+        const dstDir = dstPath.substring(0, Math.max(dstPath.lastIndexOf('/'), dstPath.lastIndexOf('\\')));
         if (dstDir) await this.ensureFolder(dstDir);
         await this.plugin.app.vault.create(dstPath, content).catch(() => {});
       }
@@ -529,7 +532,7 @@ export class MigrationService {
   }
 
   private async writeNewFile(path: string, content: string): Promise<void> {
-    const dir = path.substring(0, path.lastIndexOf('/'));
+    const dir = path.substring(0, Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')));
     await this.ensureFolder(dir);
     if (this.isAbsolutePath(path)) {
       writeFileSync(path, content, 'utf-8');

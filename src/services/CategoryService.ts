@@ -74,6 +74,71 @@ export class CategoryService {
     await this.loadAll();
   }
 
+  /** 切换数据路径时重置索引状态 */
+  resetPath(): void {
+    this.loaded = false;
+    this.byId.clear();
+    this.sorted = [];
+  }
+
+  // ---------- vault 事件监听（外部修改时自动重建索引） ----------
+  /** 自身写操作深度计数（>0 时 vault 事件来自插件自己，跳过重建） */
+  private selfWriteDepth = 0;
+  /** 已注册的 vault 事件引用（注销用） */
+  private vaultHandlerRefs: { event: string; ref: unknown }[] = [];
+  /** 外部变更重建索引的防抖定时器 */
+  private rebuildTimer: number | null = null;
+  /** 防抖间隔：合并批量变更（迁移/恢复/同步）为一次重建 */
+  private static readonly REBUILD_DEBOUNCE_MS = 300;
+
+  /** 注册 vault 事件监听，外部修改时自动失效索引 */
+  registerVaultEvents(): void {
+    // 绝对路径模式下不走 vault API，无法监听
+    if (this.plugin.dataService.pathResolver.isAbsolutePath()) return;
+    if (this.vaultHandlerRefs.length > 0) return; // 防止重复注册（热重载）
+
+    const handler = (file: unknown) => {
+      if (this.selfWriteDepth > 0) return; // 插件自身写入不触发重建
+      const path = (file as { path?: unknown } | null)?.path;
+      if (typeof path !== 'string') return;
+      // 动态获取当前目录前缀，切换 dataPath 后依然有效
+      if (path.startsWith(this.getCategoriesFolder() + '/')) {
+        this.scheduleRebuild();
+      }
+    };
+    const vault = this.plugin.app.vault as {
+      on: (event: string, cb: (file: unknown) => void) => unknown;
+      offref: (ref: unknown) => void;
+    };
+    for (const event of ['create', 'modify', 'delete']) {
+      this.vaultHandlerRefs.push({ event, ref: vault.on(event, handler) });
+    }
+  }
+
+  /** 注销 vault 事件监听（插件卸载时调用） */
+  unregisterVaultEvents(): void {
+    const vault = this.plugin.app.vault as {
+      offref: (ref: unknown) => void;
+    };
+    for (const { ref } of this.vaultHandlerRefs) {
+      vault.offref(ref);
+    }
+    this.vaultHandlerRefs = [];
+    if (this.rebuildTimer !== null) {
+      window.clearTimeout(this.rebuildTimer);
+      this.rebuildTimer = null;
+    }
+  }
+
+  /** 防抖合并多次外部变更，只重建一次索引 */
+  private scheduleRebuild(): void {
+    if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
+    this.rebuildTimer = window.setTimeout(() => {
+      this.rebuildTimer = null;
+      this.invalidateAll().catch((e) => console.error('[WorkflowHub] 分类索引重建失败:', e));
+    }, CategoryService.REBUILD_DEBOUNCE_MS);
+  }
+
   private rebuildSorted(): void {
     this.sorted = [...this.byId.values()].sort(
       (a, b) => a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt),
@@ -146,6 +211,31 @@ export class CategoryService {
     this.byId.set(id, updated);
     this.rebuildSorted();
     return updated;
+  }
+
+  /** 原子交换两个分类的 sortOrder（上/下移操作） */
+  async swapSortOrder(idA: string, idB: string): Promise<void> {
+    await this.loadAll();
+    const a = this.byId.get(idA);
+    const b = this.byId.get(idB);
+    if (!a || !b) throw new Error('分类不存在');
+
+    const tempOrder = a.sortOrder;
+    a.sortOrder = b.sortOrder;
+    b.sortOrder = tempOrder;
+
+    const now = nowISO();
+    a.version += 1;
+    b.version += 1;
+    a.updatedAt = now;
+    b.updatedAt = now;
+
+    await this.writeCategoryFile(a);
+    await this.writeCategoryFile(b);
+
+    this.byId.set(idA, a);
+    this.byId.set(idB, b);
+    this.rebuildSorted();
   }
 
   async delete(id: string): Promise<void> {
@@ -229,25 +319,36 @@ export class CategoryService {
   }
 
   private async writeCategoryFile(category: Category): Promise<void> {
-    const filePath = this.getCategoryFilePath(category);
-    const content = this.serializeCategory(category);
-    await this.ensureFolder();
-    if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
-      writeFileSync(filePath, content, 'utf-8');
-    } else {
-      const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
-      if (file instanceof TFile) await this.plugin.app.vault.modify(file, content);
-      else await this.plugin.app.vault.create(filePath, content);
+    // 自身写操作标记：vault 事件触发时跳过索引重建
+    this.selfWriteDepth++;
+    try {
+      const filePath = this.getCategoryFilePath(category);
+      const content = this.serializeCategory(category);
+      await this.ensureFolder();
+      if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
+        writeFileSync(filePath, content, 'utf-8');
+      } else {
+        const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
+        if (file instanceof TFile) await this.plugin.app.vault.modify(file, content);
+        else await this.plugin.app.vault.create(filePath, content);
+      }
+    } finally {
+      this.selfWriteDepth--;
     }
   }
 
   private async deleteCategoryFile(category: Pick<Category, 'id' | 'name'>): Promise<void> {
-    const filePath = this.getCategoryFilePath(category);
-    if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
-      if (existsSync(filePath)) unlinkSync(filePath);
-    } else {
-      const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
-      if (file instanceof TFile) await this.plugin.app.vault.delete(file);
+    this.selfWriteDepth++;
+    try {
+      const filePath = this.getCategoryFilePath(category);
+      if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
+        if (existsSync(filePath)) unlinkSync(filePath);
+      } else {
+        const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
+        if (file instanceof TFile) await this.plugin.app.vault.delete(file);
+      }
+    } finally {
+      this.selfWriteDepth--;
     }
   }
 

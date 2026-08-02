@@ -42,6 +42,9 @@ interface TableViewCallbacks {
   onCloseDetail: () => void;
 }
 
+/** 跨实例持久化的排序状态（避免每次 new TableView 重置用户排序） */
+let sharedSortState: SortState = { column: null, direction: 'asc' };
+
 export class TableView {
   containerEl: HTMLElement;
   plugin: AppVersionManagerPlugin;
@@ -50,7 +53,7 @@ export class TableView {
   apps: App[];
   private callbacks: TableViewCallbacks;
   selectedProjectId: string | null;
-  private sortState: SortState = { column: null, direction: 'asc' };
+  private sortState: SortState = sharedSortState;
   
   // Backward-compatible aliases
   get onRefresh() { return this.callbacks.onRefresh; }
@@ -78,11 +81,11 @@ export class TableView {
 
   private applySorting(projects: Project[]): Project[] {
     if (!this.sortState.column) {
-      return sortProjectsByPriority(projects, this.plugin.settings.progressStages);
+      return sortProjectsByPriority(projects, this.plugin.dataConfigService.config.progressStages);
     }
 
     const { column, direction } = this.sortState;
-    const progressOrder = getProgressOrder(this.plugin.settings.progressStages);
+    const progressOrder = getProgressOrder(this.plugin.dataConfigService.config.progressStages);
     const sign = direction === 'desc' ? -1 : 1;
 
     const sorted = [...projects].sort((a, b) => {
@@ -152,14 +155,15 @@ export class TableView {
   }
 
   private toggleSort(column: string) {
-    if (this.sortState.column === column) {
-      this.sortState = {
+    if (sharedSortState.column === column) {
+      sharedSortState = {
         column,
-        direction: this.sortState.direction === 'asc' ? 'desc' : 'asc',
+        direction: sharedSortState.direction === 'asc' ? 'desc' : 'asc',
       };
     } else {
-      this.sortState = { column, direction: 'asc' };
+      sharedSortState = { column, direction: 'asc' };
     }
+    this.sortState = sharedSortState;
     this.render();
   }
 
@@ -190,7 +194,7 @@ export class TableView {
     ];
 
     // 根据设置过滤显示的列
-    const enabledColumns = this.plugin.settings.tableColumns || [];
+    const enabledColumns = this.plugin.dataConfigService.config.tableColumns || [];
     const columns = allColumns.filter((col) => enabledColumns.includes(col.key));
 
     columns.forEach((col) => {
@@ -248,8 +252,8 @@ export class TableView {
       row.addClass('avm-overdue-row');
     }
 
-    const lastProgress = getLastProgress(this.plugin.settings.progressStages);
-    const isPreRelease = isProjectInPreRelease(project, this.plugin.settings.preReleaseRound, lastProgress);
+    const lastProgress = getLastProgress(this.plugin.dataConfigService.config.progressStages);
+    const isPreRelease = isProjectInPreRelease(project, this.plugin.dataConfigService.config.preReleaseRound, lastProgress);
     if (isPreRelease) {
       row.addClass('avm-pre-release-row');
     }
@@ -297,7 +301,7 @@ export class TableView {
           break;
 
         case 'progress': {
-          const progressColors = getProgressColors(this.plugin.settings.progressStages);
+          const progressColors = getProgressColors(this.plugin.dataConfigService.config.progressStages);
           const badge = td.createDiv({ cls: 'avm-progress-badge-small avm-clickable', text: project.progress });
           badge.style.backgroundColor = progressColors[project.progress] || '#64748b';
           badge.addEventListener('click', (e) => {
@@ -389,7 +393,7 @@ export class TableView {
   }
 
   private checkOverdue(project: Project): boolean {
-    return checkOverdue(project, this.plugin.settings.progressStages, this.plugin.settings.overdueWarningDays);
+    return checkOverdue(project, this.plugin.dataConfigService.config.progressStages, this.plugin.settings.overdueWarningDays);
   }
 
   private showRowContextMenu(project: Project, event: MouseEvent) {
@@ -452,14 +456,14 @@ export class TableView {
   }
 
   private handleProgressClick(project: Project) {
-    const progressOrder = getProgressOrder(this.plugin.settings.progressStages);
+    const progressOrder = getProgressOrder(this.plugin.dataConfigService.config.progressStages);
     const currentIndex = progressOrder.indexOf(project.progress);
     if (currentIndex === -1 || currentIndex >= progressOrder.length - 1) {
       return;
     }
 
     const nextProgress = progressOrder[currentIndex + 1];
-    new ProgressConfirmModal(this.plugin.app, project, nextProgress, this.plugin.settings.progressStages, async () => {
+    new ProgressConfirmModal(this.plugin.app, project, nextProgress, this.plugin.dataConfigService.config.progressStages, async () => {
       try {
         await this.plugin.dataService.updateProject(project.id, { progress: nextProgress }, project.version);
         this.onRefresh();
@@ -475,8 +479,8 @@ export class TableView {
       project,
       this.apps,
       this.versions,
-      this.plugin.settings.progressStages,
-      this.plugin.settings.responsiblePersons,
+      this.plugin.dataConfigService.config.progressStages,
+      this.plugin.dataConfigService.config.responsiblePersons,
       async (data) => {
         try {
           await this.plugin.dataService.updateProject(project.id, data, project.version);

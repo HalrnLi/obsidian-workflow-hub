@@ -182,22 +182,47 @@ export interface DefaultTodoTemplate {
   dueDate: string;
 }
 
-export interface PluginSettings {
+/**
+ * 数据目录内的配置（跟着数据存储路径走）。
+ * 这些配置是数据集本身的属性，切换数据路径或共享数据时一起生效。
+ * 存储位置：{dataPath}/.workflow-hub-config.json
+ */
+export interface DataConfig {
+  /** 新建项目时默认选中的 APP ID */
   defaultAppId: string | null;
+  /** 自定义流程阶段 */
+  progressStages: ProgressStage[];
+  /** 哪个阶段为预发布轮次 */
+  preReleaseRound: string;
+  /** 默认待办模板 */
+  defaultTodos: DefaultTodoTemplate[];
+  /** 负责人列表 */
+  responsiblePersons: string[];
+  /** 新建待办默认分类 ID（null=未分类） */
+  defaultCategoryId: string | null;
+  /** 项目列表中显示的列 */
+  tableColumns: string[];
+}
+
+export const DEFAULT_DATA_CONFIG: DataConfig = {
+  defaultAppId: null,
+  progressStages: DEFAULT_PROGRESS_STAGES,
+  preReleaseRound: 'B3集成测试',
+  defaultTodos: [],
+  responsiblePersons: [],
+  defaultCategoryId: null,
+  tableColumns: ['name', 'appVersion', 'manager', 'responsiblePerson', 'features', 'spec', 'progress', 'currentRound', 'nextStage', 'nextStageTime', 'links', 'todos'],
+};
+
+export interface PluginSettings {
   autoBackup: boolean;
   backupDay: number;
   backupHour: number;
   lastBackupTime: string | null;
   dataPath: string;
   backupPath: string;
-  progressStages: ProgressStage[];
   overdueWarningDays: number;
   autoRefreshInterval: number;
-  defaultTodos: DefaultTodoTemplate[];
-  responsiblePersons: string[];
-  preReleaseRound: string; // 哪个阶段为预发布轮次，可选 B2系统测试/B3集成测试/B3系统测试/B4集成测试/B4系统测试，默认 B3集成测试
-  /** 新建待办默认分类 ID（null=未分类） */
-  defaultCategoryId: string | null;
   /** 数据迁移是否已完成（避免重复迁移） */
   migrationCompleted: boolean;
   /** 智能继承最后执行日期（YYYY-DD-MM，避免重复执行） */
@@ -206,30 +231,21 @@ export interface PluginSettings {
   migrationError: string | null;
   /** 旧 AVM 数据路径（支持 vault 相对路径或绝对路径） */
   oldDataPath: string;
-  /** 项目列表中显示的列 */
-  tableColumns: string[];
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
-  defaultAppId: null,
   autoBackup: true,
   backupDay: 5,
   backupHour: 23,
   lastBackupTime: null,
   dataPath: 'workflow-hub',
   backupPath: '',
-  progressStages: DEFAULT_PROGRESS_STAGES,
   overdueWarningDays: 3,
   autoRefreshInterval: 2,
-  defaultTodos: [],
-  responsiblePersons: [],
-  preReleaseRound: 'B3集成测试',
-  defaultCategoryId: null,
   migrationCompleted: false,
   inheritanceLastRun: null,
   migrationError: null,
   oldDataPath: 'app-version-manager',
-  tableColumns: ['name', 'appVersion', 'manager', 'responsiblePerson', 'features', 'spec', 'progress', 'currentRound', 'nextStage', 'nextStageTime', 'links', 'todos'],
 };
 
 export function getProgressOrder(stages: ProgressStage[]): ProjectProgress[] {
@@ -291,6 +307,22 @@ export function parseDateInput(input: string): string | null {
     const testDate = new Date(year, month - 1, day);
     if (testDate.getFullYear() === year && testDate.getMonth() === month - 1 && testDate.getDate() === day) {
       return `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+    }
+  }
+
+  // 对于 ISO 格式（YYYY-MM-DD），直接解析组件避免 UTC 时区偏移
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (isoMatch) {
+    const year = parseInt(isoMatch[1]);
+    const month = parseInt(isoMatch[2]);
+    const day = parseInt(isoMatch[3]);
+    const testDate = new Date(year, month - 1, day);
+    if (
+      testDate.getFullYear() === year &&
+      testDate.getMonth() === month - 1 &&
+      testDate.getDate() === day
+    ) {
+      return formatLocalDate(testDate);
     }
   }
 

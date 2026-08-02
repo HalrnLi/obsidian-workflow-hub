@@ -249,11 +249,11 @@ export class ImportExportService {
   }
 
   private parseProgress(value: string): ProjectProgress {
-    const progressOrder = getProgressOrder(this.plugin.settings.progressStages);
+    const progressOrder = getProgressOrder(this.plugin.dataConfigService.config.progressStages);
     if (progressOrder.includes(value as ProjectProgress)) {
       return value as ProjectProgress;
     }
-    return getFirstProgress(this.plugin.settings.progressStages);
+    return getFirstProgress(this.plugin.dataConfigService.config.progressStages);
   }
 
   async exportToExcel(projects: Project[], versions: Version[], apps: App[]): Promise<ArrayBuffer> {

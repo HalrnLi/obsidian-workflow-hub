@@ -44,7 +44,7 @@ export class CreateTodoModal extends Modal {
       dueDate: existing?.dueDate ?? '',
       priority: existing?.priority ?? '',
       status: existing?.status ?? 'todo',
-      categoryId: existing?.categoryId ?? plugin.settings.defaultCategoryId ?? null,
+      categoryId: existing?.categoryId ?? plugin.dataConfigService.config.defaultCategoryId ?? null,
       projectId: existing?.projectId ?? this.defaultProjectId ?? null,
       responsiblePerson: existing?.responsiblePerson ?? plugin.todoService.getCurrentResponsiblePerson() ?? '',
     };

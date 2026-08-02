@@ -88,8 +88,7 @@ export class CategoryModal extends Modal {
           .onClick(async () => {
             if (index > 0) {
               const prev = this.categories[index - 1];
-              await this.plugin.categoryService.update(cat.id, { sortOrder: prev.sortOrder }, cat.version);
-              await this.plugin.categoryService.update(prev.id, { sortOrder: cat.sortOrder }, prev.version);
+              await this.plugin.categoryService.swapSortOrder(cat.id, prev.id);
               await this.reload();
               this.onChange?.();
               this.renderList();
@@ -105,8 +104,7 @@ export class CategoryModal extends Modal {
           .onClick(async () => {
             if (index < this.categories.length - 1) {
               const next = this.categories[index + 1];
-              await this.plugin.categoryService.update(cat.id, { sortOrder: next.sortOrder }, cat.version);
-              await this.plugin.categoryService.update(next.id, { sortOrder: cat.sortOrder }, next.version);
+              await this.plugin.categoryService.swapSortOrder(cat.id, next.id);
               await this.reload();
               this.onChange?.();
               this.renderList();

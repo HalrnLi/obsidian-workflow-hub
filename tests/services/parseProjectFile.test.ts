@@ -91,6 +91,28 @@ function createMockPlugin() {
     },
     loadData: vi.fn(async () => ({})),
     saveData: vi.fn(async () => {}),
+    dataConfigService: {
+      config: {
+        progressStages: [
+          { name: '需求分解', color: '#6366f1' },
+          { name: '配置组件填写', color: '#8b5cf6' },
+          { name: '组件上传', color: '#ec4899' },
+          { name: '自测验证', color: '#f59e0b' },
+          { name: '待提测', color: '#f97316' },
+          { name: '已提测', color: '#3b82f6' },
+          { name: '已发布', color: '#10b981' },
+        ],
+        defaultTodos: [],
+        responsiblePersons: [],
+        defaultCategoryId: null,
+        defaultAppId: null,
+        preReleaseRound: 'B3集成测试',
+        tableColumns: ['name', 'appVersion', 'manager', 'responsiblePerson', 'features', 'spec', 'progress', 'currentRound', 'nextStage', 'nextStageTime', 'links', 'todos'],
+      },
+      load: async () => {},
+      save: async () => {},
+      update: async (updater) => { updater({}); },
+    },
   };
 
   return { plugin, app, vault };

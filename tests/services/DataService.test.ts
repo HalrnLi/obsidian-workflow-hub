@@ -104,6 +104,28 @@ function createMockPlugin(useAbsolutePath = false) {
     },
     loadData: vi.fn(async () => ({})),
     saveData: vi.fn(async () => {}),
+    dataConfigService: {
+      config: {
+        progressStages: [
+          { name: '需求分解', color: '#6366f1' },
+          { name: '配置组件填写', color: '#8b5cf6' },
+          { name: '组件上传', color: '#ec4899' },
+          { name: '自测验证', color: '#f59e0b' },
+          { name: '待提测', color: '#f97316' },
+          { name: '已提测', color: '#3b82f6' },
+          { name: '已发布', color: '#10b981' },
+        ],
+        defaultTodos: [],
+        responsiblePersons: [],
+        defaultCategoryId: null,
+        defaultAppId: null,
+        preReleaseRound: 'B3集成测试',
+        tableColumns: ['name', 'appVersion', 'manager', 'responsiblePerson', 'features', 'spec', 'progress', 'currentRound', 'nextStage', 'nextStageTime', 'links', 'todos'],
+      },
+      load: async () => {},
+      save: async () => {},
+      update: async (updater) => { updater({}); },
+    },
   };
 
   return {
@@ -717,6 +739,96 @@ version: 1
       expect(secondBatch).toHaveLength(2); // original + new
       // vaultRead count unchanged because cache was updated in-place
       expect(mocks.vaultRead.mock.calls.length).toBe(readCountAfterFirstPopulate);
+    });
+
+    it('invalidates versions:all and versions:{appId} after createVersion', async () => {
+      // 预置脏缓存，验证 createVersion 后全部失效
+      service.cache.set('versions:all', [{ id: 'stale' }]);
+      service.cache.set('versions:app-1', [{ id: 'stale' }]);
+
+      await service.createVersion({
+        appId: 'app-1',
+        versionNumber: '2.0.0',
+        bllVersion: '1.0',
+        ippVersion: '2.0',
+        webVersion: '3.0',
+      });
+
+      expect(service.cache.get('versions:all')).toBeNull();
+      expect(service.cache.get('versions:app-1')).toBeNull();
+    });
+
+    it('invalidates versions caches after updateVersion', async () => {
+      const ver = {
+        id: 'ver-1',
+        appId: 'app-1',
+        versionNumber: '1.0.0',
+        bllVersion: '',
+        ippVersion: '',
+        webVersion: '',
+        updateContent: '',
+        isArchived: false,
+        version: 1,
+      };
+      service.cache.set('versions:all', [ver]);
+      service.cache.set('versions:app-1', [ver]);
+
+      const updated = await service.updateVersion('ver-1', { bllVersion: '2.0' }, 1);
+      expect(updated).not.toBeNull();
+      expect(updated!.bllVersion).toBe('2.0');
+      expect(service.cache.get('versions:all')).toBeNull();
+      expect(service.cache.get('versions:app-1')).toBeNull();
+    });
+
+    it('invalidates versions caches after deleteVersion', async () => {
+      const ver = {
+        id: 'ver-1',
+        appId: 'app-1',
+        versionNumber: '1.0.0',
+        bllVersion: '',
+        ippVersion: '',
+        webVersion: '',
+        updateContent: '',
+        isArchived: false,
+        version: 1,
+      };
+      service.cache.set('versions:all', [ver]);
+      service.cache.set('versions:app-1', [ver]);
+
+      const result = await service.deleteVersion('ver-1');
+      expect(result).toBe(true);
+      expect(service.cache.get('versions:all')).toBeNull();
+      expect(service.cache.get('versions:app-1')).toBeNull();
+    });
+
+    it('invalidates versions:{appId} after deleteApp', async () => {
+      const appFile = makeTFile('App__app-1', '---\nid: app-1\nname: App\nversion: 1\n---\n');
+      const appsFolder = new TFolder();
+      appsFolder.path = 'app-version-manager/apps';
+      appsFolder.children = [appFile];
+      const versionsFolder = new TFolder();
+      versionsFolder.path = 'app-version-manager/versions';
+      versionsFolder.children = [];
+      const projectsFolder = new TFolder();
+      projectsFolder.path = 'app-version-manager/projects';
+      projectsFolder.children = [];
+      mocks.getAbstractFileByPath.mockImplementation((path: string) => {
+        if (path === 'app-version-manager/apps') return appsFolder;
+        if (path === 'app-version-manager/versions') return versionsFolder;
+        if (path === 'app-version-manager/projects') return projectsFolder;
+        if (path === 'app-version-manager') return new TFolder();
+        if (path === appFile.path || path === appFile.name) return appFile;
+        return null;
+      });
+      mocks.vaultRead.mockResolvedValue('---\nid: app-1\nname: App\nversion: 1\n---\n');
+
+      service.cache.set('versions:app-1', [{ id: 'ver-1', appId: 'app-1' }]);
+      service.cache.set('versions:all', []);
+
+      const result = await service.deleteApp('app-1');
+      expect(result).toBe(true);
+      expect(service.cache.get('versions:app-1')).toBeNull();
+      expect(service.cache.get('versions:all')).toBeNull();
     });
   });
 

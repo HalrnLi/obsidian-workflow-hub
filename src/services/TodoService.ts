@@ -16,7 +16,7 @@ const NULL_KEY = '__null__';
  * 关键变化：
  *  - 每个 Todo 独立一个 .md 文件（AVM 原本是 todos__{projectId}.md 集中数组）
  *  - 支持全局待办（projectId=null）和项目待办（projectId 非空）
- *  - 多维内存索引（byId/byCategory/byProject/byStatus/byDueDate/searchIndex）
+ *  - 多维内存索引（byId/byCategory/byProject/byStatus/byDueDate）
  *  - create/update/delete 不再需要 projectId 作为第一参数（projectId 是 Todo 字段之一）
  *  - status 三态状态机替代 completed: boolean
  */
@@ -30,7 +30,6 @@ export class TodoService {
   private byStatus = new Map<TodoStatus, Set<Todo>>();
   private byDueDate = new Map<string, Set<Todo>>();
   private byPerson = new Map<string, Set<Todo>>();
-  private searchIndex = new Map<string, Set<Todo>>();
   private loaded = false;
   private currentResponsiblePerson: string = '';
 
@@ -104,6 +103,70 @@ export class TodoService {
     await this.loadAllIndexes();
   }
 
+  /** 切换数据路径时重置索引状态 */
+  resetPath(): void {
+    this.loaded = false;
+    this.clearIndexes();
+  }
+
+  // ---------- vault 事件监听（外部修改时自动重建索引） ----------
+  /** 自身写操作深度计数（>0 时 vault 事件来自插件自己，跳过重建） */
+  private selfWriteDepth = 0;
+  /** 已注册的 vault 事件引用（注销用） */
+  private vaultHandlerRefs: { event: string; ref: unknown }[] = [];
+  /** 外部变更重建索引的防抖定时器 */
+  private rebuildTimer: number | null = null;
+  /** 防抖间隔：合并批量变更（迁移/恢复/同步）为一次重建 */
+  private static readonly REBUILD_DEBOUNCE_MS = 300;
+
+  /** 注册 vault 事件监听，外部修改时自动失效索引 */
+  registerVaultEvents(): void {
+    // 绝对路径模式下不走 vault API，无法监听
+    if (this.plugin.dataService.pathResolver.isAbsolutePath()) return;
+    if (this.vaultHandlerRefs.length > 0) return; // 防止重复注册（热重载）
+
+    const handler = (file: unknown) => {
+      if (this.selfWriteDepth > 0) return; // 插件自身写入不触发重建
+      const path = (file as { path?: unknown } | null)?.path;
+      if (typeof path !== 'string') return;
+      // 动态获取当前目录前缀，切换 dataPath 后依然有效
+      if (path.startsWith(this.getTodosFolder() + '/')) {
+        this.scheduleRebuild();
+      }
+    };
+    const vault = this.plugin.app.vault as {
+      on: (event: string, cb: (file: unknown) => void) => unknown;
+      offref: (ref: unknown) => void;
+    };
+    for (const event of ['create', 'modify', 'delete']) {
+      this.vaultHandlerRefs.push({ event, ref: vault.on(event, handler) });
+    }
+  }
+
+  /** 注销 vault 事件监听（插件卸载时调用） */
+  unregisterVaultEvents(): void {
+    const vault = this.plugin.app.vault as {
+      offref: (ref: unknown) => void;
+    };
+    for (const { ref } of this.vaultHandlerRefs) {
+      vault.offref(ref);
+    }
+    this.vaultHandlerRefs = [];
+    if (this.rebuildTimer !== null) {
+      window.clearTimeout(this.rebuildTimer);
+      this.rebuildTimer = null;
+    }
+  }
+
+  /** 防抖合并多次外部变更，只重建一次索引 */
+  private scheduleRebuild(): void {
+    if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
+    this.rebuildTimer = window.setTimeout(() => {
+      this.rebuildTimer = null;
+      this.invalidateAll().catch((e) => console.error('[WorkflowHub] 待办索引重建失败:', e));
+    }, TodoService.REBUILD_DEBOUNCE_MS);
+  }
+
   private clearIndexes(): void {
     this.byId.clear();
     this.byCategory.clear();
@@ -111,7 +174,6 @@ export class TodoService {
     this.byStatus.clear();
     this.byDueDate.clear();
     this.byPerson.clear();
-    this.searchIndex.clear();
   }
 
   // ---------- 索引维护 ----------
@@ -122,7 +184,6 @@ export class TodoService {
     this.addToSetIndex(this.byStatus, todo.status, todo);
     if (todo.dueDate) this.addToSetIndex(this.byDueDate, todo.dueDate, todo);
     this.addToSetIndex(this.byPerson, todo.responsiblePerson || NULL_KEY, todo);
-    this.indexSearchAdd(todo);
   }
 
   private indexRemove(todo: Todo): void {
@@ -132,7 +193,6 @@ export class TodoService {
     this.removeFromSetIndex(this.byStatus, todo.status, todo);
     if (todo.dueDate) this.removeFromSetIndex(this.byDueDate, todo.dueDate, todo);
     this.removeFromSetIndex(this.byPerson, todo.responsiblePerson || NULL_KEY, todo);
-    this.indexSearchRemove(todo);
   }
 
   private addToSetIndex<K>(map: Map<K, Set<Todo>>, key: K, todo: Todo): void {
@@ -150,42 +210,6 @@ export class TodoService {
       set.delete(todo);
       if (set.size === 0) map.delete(key);
     }
-  }
-
-  // 轻量搜索索引：中文 2-gram + 英文分词
-  private indexSearchAdd(todo: Todo): void {
-    const tokens = this.tokenize(`${todo.content} ${todo.link}`);
-    for (const token of tokens) this.addToSetIndex(this.searchIndex, token, todo);
-  }
-
-  private indexSearchRemove(todo: Todo): void {
-    const tokens = this.tokenize(`${todo.content} ${todo.link}`);
-    for (const token of tokens) this.removeFromSetIndex(this.searchIndex, token, todo);
-  }
-
-  private tokenize(text: string): string[] {
-    if (!text) return [];
-    const tokens = new Set<string>();
-    const words = text
-      .toLowerCase()
-      .split(/[^\w\u4e00-\u9fa5]+/)
-      .filter(Boolean);
-    for (const w of words) {
-      if (/^[a-z0-9]+$/.test(w)) {
-        tokens.add(w);
-        // 英文数字混合词（如 obsidian123、utf8v2）：额外按字母/数字段分词，
-        // 让搜 obsidian 也能匹配 obsidian123
-        if (/[a-z]/.test(w) && /\d/.test(w)) {
-          const segments = w.match(/[a-z]+|\d+/g);
-          if (segments) for (const seg of segments) tokens.add(seg);
-        }
-      } else {
-        // 中文 2-gram 滑动窗口
-        for (let i = 0; i < w.length - 1; i++) tokens.add(w.substring(i, i + 2));
-        if (w.length === 1) tokens.add(w);
-      }
-    }
-    return [...tokens];
   }
 
   // ---------- 磁盘读写 ----------
@@ -281,24 +305,30 @@ export class TodoService {
   }
 
   private async writeTodoFile(todo: Todo): Promise<void> {
-    const filePath = this.getTodoFilePath(todo);
-    const content = this.serializeTodo(todo);
-    await this.ensureFileFolder(filePath);
-    if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
-      writeFileSync(filePath, content, 'utf-8');
-    } else {
-      const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
-      if (file instanceof TFile) {
-        await this.plugin.app.vault.modify(file, content);
+    // 自身写操作标记：vault 事件触发时跳过索引重建（避免每次保存全量重读）
+    this.selfWriteDepth++;
+    try {
+      const filePath = this.getTodoFilePath(todo);
+      const content = this.serializeTodo(todo);
+      await this.ensureFileFolder(filePath);
+      if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
+        writeFileSync(filePath, content, 'utf-8');
       } else {
-        await this.plugin.app.vault.create(filePath, content);
+        const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
+        if (file instanceof TFile) {
+          await this.plugin.app.vault.modify(file, content);
+        } else {
+          await this.plugin.app.vault.create(filePath, content);
+        }
       }
+    } finally {
+      this.selfWriteDepth--;
     }
   }
 
   /** 确保文件所在目录存在（包括负责人子文件夹） */
   private async ensureFileFolder(filePath: string): Promise<void> {
-    const dir = filePath.substring(0, filePath.lastIndexOf('/'));
+    const dir = filePath.substring(0, Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\')));
     if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
       const { mkdirSync, existsSync } = await import('fs');
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -310,12 +340,17 @@ export class TodoService {
   }
 
   private async deleteTodoFile(todo: Pick<Todo, 'id' | 'content' | 'responsiblePerson'>): Promise<void> {
-    const filePath = this.getTodoFilePath(todo);
-    if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
-      if (existsSync(filePath)) unlinkSync(filePath);
-    } else {
-      const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
-      if (file instanceof TFile) await this.plugin.app.vault.delete(file);
+    this.selfWriteDepth++;
+    try {
+      const filePath = this.getTodoFilePath(todo);
+      if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
+        if (existsSync(filePath)) unlinkSync(filePath);
+      } else {
+        const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
+        if (file instanceof TFile) await this.plugin.app.vault.delete(file);
+      }
+    } finally {
+      this.selfWriteDepth--;
     }
   }
 

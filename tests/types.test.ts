@@ -69,6 +69,12 @@ describe('parseDateInput', () => {
     expect(parseDateInput('2026-1-5')).toBe('2026-01-05');
   });
 
+  it('parses ISO date without UTC timezone shift', () => {
+    // 回归：new Date("2026-02-10") 按 UTC 解析，负 UTC 时区（如 UTC-5）会偏移为 02-09
+    // 修复后 YYYY-MM-DD 必须按本地组件解析
+    expect(parseDateInput('2026-02-10')).toBe('2026-02-10');
+  });
+
   it('returns null for invalid date strings', () => {
     expect(parseDateInput('not a date')).toBeNull();
     expect(parseDateInput('2026-13-01')).toBeNull(); // invalid month

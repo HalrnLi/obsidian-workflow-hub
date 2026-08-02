@@ -34,7 +34,15 @@ export class ReminderService {
     this.cancelReminder(todoId);
 
     const fireAt = Date.now() + delayMs;
+    // setTimeout 溢出保护：最大延迟 2^31-1ms（约 24.8 天）
+    const MAX_TIMEOUT = 2147483647;
+    const safeDelay = Math.min(delayMs, MAX_TIMEOUT);
     const timerId = window.setTimeout(() => {
+      // 若仍有剩余时间，重新调度
+      if (delayMs > MAX_TIMEOUT) {
+        this.setReminder(todoId, content, delayMs - MAX_TIMEOUT, link);
+        return;
+      }
       try {
         // 检查待办是否已完成
         this.plugin.todoService
@@ -50,7 +58,7 @@ export class ReminderService {
         this.reminders.delete(todoId);
         this.plugin.notifyViewsToRefresh();
       }
-    }, delayMs);
+    }, safeDelay);
 
     this.reminders.set(todoId, { timerId, fireAt, todoId, content, link });
     return fireAt;

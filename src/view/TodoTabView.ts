@@ -49,66 +49,68 @@ export class TodoTabView {
     if (this.isRendering) return;
     this.isRendering = true;
 
-    // 阶段 1：获取所有数据（纯计算，不碰 DOM）
-    let todos: Todo[] = [];
-    let projectCache = new Map<string, string>();
     try {
-      this.categories = await this.plugin.categoryService.getAll();
-    } catch (e) {
-      console.error('加载分类失败', e);
-    }
-    this.selectedPersons = this.plugin.settings.responsiblePersons ?? [];
+      // 阶段 1：获取所有数据（纯计算，不碰 DOM）
+      let todos: Todo[] = [];
+      const projectCache = new Map<string, string>();
+      try {
+        this.categories = await this.plugin.categoryService.getAll();
+      } catch (e) {
+        console.error('加载分类失败', e);
+      }
+      this.selectedPersons = this.plugin.dataConfigService.config.responsiblePersons ?? [];
 
-    try {
-      const dateRange = this.getDateRange();
-      todos = await this.plugin.todoService.queryTodos({
-        categoryId: this.selectedCategoryId === 'all' ? undefined : this.selectedCategoryId,
-        status: this.statusFilter === 'all' ? undefined : this.statusFilter,
-        projectFilter: this.projectFilter,
-        keyword: this.keyword,
-        updatedDateFrom: dateRange.from,
-        updatedDateTo: dateRange.to,
-      });
-    } catch (e) {
-      console.error('查询待办失败', e);
-    }
+      try {
+        const dateRange = this.getDateRange();
+        todos = await this.plugin.todoService.queryTodos({
+          categoryId: this.selectedCategoryId === 'all' ? undefined : this.selectedCategoryId,
+          status: this.statusFilter === 'all' ? undefined : this.statusFilter,
+          projectFilter: this.projectFilter,
+          keyword: this.keyword,
+          updatedDateFrom: dateRange.from,
+          updatedDateTo: dateRange.to,
+        });
+      } catch (e) {
+        console.error('查询待办失败', e);
+      }
 
-    todos = sortTodos(todos);
+      todos = sortTodos(todos);
 
-    // 预加载项目信息
-    for (const todo of todos) {
-      if (todo.projectId && !projectCache.has(todo.projectId)) {
-        try {
-          const p = await this.plugin.dataService.getProjectById(todo.projectId);
-          projectCache.set(todo.projectId, p?.name ?? '已删除项目');
-        } catch {
-          projectCache.set(todo.projectId, '未知项目');
+      // 预加载项目信息
+      for (const todo of todos) {
+        if (todo.projectId && !projectCache.has(todo.projectId)) {
+          try {
+            const p = await this.plugin.dataService.getProjectById(todo.projectId);
+            projectCache.set(todo.projectId, p?.name ?? '已删除项目');
+          } catch {
+            projectCache.set(todo.projectId, '未知项目');
+          }
         }
       }
+
+      // 阶段 2：同步一次性渲染 DOM（无 await，不可中断）
+      this.containerEl.empty();
+      const wrapper = this.containerEl.createDiv({ cls: 'avm-todo-wrapper' });
+
+      const mainEl = wrapper.createDiv({ cls: 'avm-todo-main' });
+      this.renderPersonSelector(mainEl);
+      this.renderCategoryTabs(mainEl);
+      this.renderFilterBar(mainEl);
+      this.renderListSync(mainEl, todos, projectCache);
+
+      const toggleBtn = mainEl.createDiv({ cls: 'avm-temp-toggle-btn', text: this.tempPanelVisible ? '▶' : '◀' });
+      toggleBtn.title = this.tempPanelVisible ? '收起临时待办' : '展开临时待办';
+      toggleBtn.addEventListener('click', async () => {
+        this.tempPanelVisible = !this.tempPanelVisible;
+        await this.render();
+      });
+
+      if (this.tempPanelVisible) {
+        this.renderTempPanel(wrapper);
+      }
+    } finally {
+      this.isRendering = false;
     }
-
-    // 阶段 2：同步一次性渲染 DOM（无 await，不可中断）
-    this.containerEl.empty();
-    const wrapper = this.containerEl.createDiv({ cls: 'avm-todo-wrapper' });
-
-    const mainEl = wrapper.createDiv({ cls: 'avm-todo-main' });
-    this.renderPersonSelector(mainEl);
-    this.renderCategoryTabs(mainEl);
-    this.renderFilterBar(mainEl);
-    this.renderListSync(mainEl, todos, projectCache);
-
-    const toggleBtn = mainEl.createDiv({ cls: 'avm-temp-toggle-btn', text: this.tempPanelVisible ? '▶' : '◀' });
-    toggleBtn.title = this.tempPanelVisible ? '收起临时待办' : '展开临时待办';
-    toggleBtn.addEventListener('click', async () => {
-      this.tempPanelVisible = !this.tempPanelVisible;
-      await this.render();
-    });
-
-    if (this.tempPanelVisible) {
-      this.renderTempPanel(wrapper);
-    }
-
-    this.isRendering = false;
   }
 
   /** 同步渲染待办列表（传入预加载的数据） */
@@ -399,7 +401,6 @@ export class TodoTabView {
     });
     allBtn.addEventListener('click', async () => {
       this.plugin.todoService.setCurrentResponsiblePerson('');
-      await this.plugin.todoService.invalidateAll();
       await this.render();
     });
 
@@ -411,7 +412,6 @@ export class TodoTabView {
       });
       btn.addEventListener('click', async () => {
         this.plugin.todoService.setCurrentResponsiblePerson(person);
-        await this.plugin.todoService.invalidateAll();
         await this.render();
       });
     });
@@ -666,7 +666,7 @@ export class TodoTabView {
   private showCreate(): void {
     const defaultCategory =
       this.selectedCategoryId === 'all' || this.selectedCategoryId === null
-        ? this.plugin.settings.defaultCategoryId
+        ? this.plugin.dataConfigService.config.defaultCategoryId
         : this.selectedCategoryId;
     new CreateTodoModal(
       this.plugin.app,

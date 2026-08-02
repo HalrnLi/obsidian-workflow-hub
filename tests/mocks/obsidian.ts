@@ -23,6 +23,29 @@ export class Vault {
   delete = vi.fn(async () => {});
   rename = vi.fn(async () => {});
   createFolder = vi.fn(async () => {});
+
+  // 事件注册/注销（供 registerVaultEvents 类逻辑测试）
+  private _handlers: Record<string, Array<(file: unknown) => void>> = {};
+  on = vi.fn((event: string, cb: (file: unknown) => void) => {
+    if (!this._handlers[event]) this._handlers[event] = [];
+    this._handlers[event].push(cb);
+    return { event, cb };
+  });
+  offref = vi.fn((ref: any) => {
+    const list = this._handlers[ref?.event];
+    if (list) {
+      const i = list.indexOf(ref?.cb);
+      if (i >= 0) list.splice(i, 1);
+    }
+  });
+  /** 测试辅助：触发指定事件 */
+  triggerEvent(event: string, file: unknown) {
+    for (const cb of this._handlers[event] ?? []) cb(file);
+  }
+  /** 测试辅助：获取指定事件的第一个处理器 */
+  getHandler(event: string): ((file: unknown) => void) | undefined {
+    return this._handlers[event]?.[0];
+  }
 }
 
 export class Workspace {

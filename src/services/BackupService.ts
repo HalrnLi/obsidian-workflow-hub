@@ -126,13 +126,27 @@ export class BackupService {
   }
 
   async restoreFromBackup(backupPath: string): Promise<boolean> {
+    try {
+      const file = this.app.vault.getAbstractFileByPath(backupPath);
+      if (!(file instanceof TFile)) return false;
+
+      const content = await this.app.vault.adapter.read(file.path);
+      return await this.restoreFromContent(content);
+    } catch (error) {
+      console.error('[AppVersionManager] Restore from backup failed.', error);
+      return false;
+    }
+  }
+
+  /** 创建回滚函数（供 restoreFromContent 使用） */
+  private async createRollbackFn(): Promise<() => Promise<void>> {
     const beforeApps = await this.plugin.dataService.getAllApps();
     const beforeVersions = await this.plugin.dataService.getAllVersions();
     const beforeProjects = await this.plugin.dataService.getAllProjects();
     const beforeTodos = await this.plugin.todoService.getAllTodos();
     const beforeCategories = await this.plugin.categoryService.getAll();
 
-    const rollback = async () => {
+    return async () => {
       for (const app of beforeApps) {
         await this.plugin.dataService.upsertAppRecord(app);
       }
@@ -163,7 +177,6 @@ export class BackupService {
         }
       }
 
-      // 回滚 todos 和 categories
       for (const todo of beforeTodos) {
         await this.plugin.todoService.upsertTodo(todo);
       }
@@ -183,85 +196,10 @@ export class BackupService {
         }
       }
     };
-
-    try {
-      const file = this.app.vault.getAbstractFileByPath(backupPath);
-      if (!(file instanceof TFile)) return false;
-
-      const content = await this.app.vault.adapter.read(file.path);
-      return await this.restoreFromContent(content, rollback);
-    } catch (error) {
-      console.error('[AppVersionManager] Restore failed, rolling back changes.', error);
-      try {
-        await rollback();
-      } catch (rollbackError) {
-        console.error('[AppVersionManager] Rollback after restore failure also failed.', rollbackError);
-      }
-      return false;
-    }
   }
 
   async restoreFromContent(content: string, rollback?: () => Promise<void>): Promise<boolean> {
-    const beforeApps = rollback ? [] : await this.plugin.dataService.getAllApps();
-    const beforeVersions = rollback ? [] : await this.plugin.dataService.getAllVersions();
-    const beforeProjects = rollback ? [] : await this.plugin.dataService.getAllProjects();
-
-    const beforeTodos = rollback ? [] : await this.plugin.todoService.getAllTodos();
-    const beforeCategories = rollback ? [] : await this.plugin.categoryService.getAll();
-
-    const doRollback =
-      rollback ||
-      (async () => {
-        for (const app of beforeApps) {
-          await this.plugin.dataService.upsertAppRecord(app);
-        }
-        for (const version of beforeVersions) {
-          await this.plugin.dataService.upsertVersionRecord(version);
-        }
-        for (const project of beforeProjects) {
-          await this.plugin.dataService.upsertProjectRecord(project);
-        }
-
-        const appIds = new Set(beforeApps.map((a) => a.id));
-        const versionIds = new Set(beforeVersions.map((v) => v.id));
-        const projectIds = new Set(beforeProjects.map((p) => p.id));
-
-        for (const project of await this.plugin.dataService.getAllProjects()) {
-          if (!projectIds.has(project.id)) {
-            await this.plugin.dataService.deleteProject(project.id);
-          }
-        }
-        for (const version of await this.plugin.dataService.getAllVersions()) {
-          if (!versionIds.has(version.id)) {
-            await this.plugin.dataService.deleteVersion(version.id);
-          }
-        }
-        for (const app of await this.plugin.dataService.getAllApps()) {
-          if (!appIds.has(app.id)) {
-            await this.plugin.dataService.deleteApp(app.id);
-          }
-        }
-
-        // 回滚 todos 和 categories
-        for (const todo of beforeTodos) {
-          await this.plugin.todoService.upsertTodo(todo);
-        }
-        for (const category of beforeCategories) {
-          await this.plugin.categoryService.upsertCategory(category);
-        }
-        const todoIds = new Set(beforeTodos.map((t) => t.id));
-        const categoryIds = new Set(beforeCategories.map((c) => c.id));
-        for (const todo of await this.plugin.todoService.getAllTodos()) {
-          if (!todoIds.has(todo.id)) {
-            await this.plugin.todoService.delete(todo.id);
-          }
-        }
-        for (const category of await this.plugin.categoryService.getAll()) {
-          if (!categoryIds.has(category.id)) {
-            await this.plugin.categoryService.delete(category.id);
-          }
-        }
-      });
+    const doRollback = rollback || (await this.createRollbackFn());
 
     try {
       const backupData = JSON.parse(content);
@@ -316,6 +254,8 @@ export class BackupService {
       // 刷新索引
       await this.plugin.todoService.invalidateAll();
       await this.plugin.categoryService.invalidateAll();
+      // 失效 DataService 缓存，避免恢复后读到旧数据（apps/versions/projects/project:{id}）
+      this.plugin.dataService.cache.invalidate();
 
       return true;
     } catch (error) {

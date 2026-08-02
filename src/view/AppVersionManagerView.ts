@@ -81,6 +81,7 @@ export class AppVersionManagerView extends ItemView {
   async onOpen() {
     this.renderLoading();
     try {
+      await this.plugin.waitForMigration();
       await this.loadData();
       this.render();
     } catch (error) {
@@ -157,6 +158,7 @@ export class AppVersionManagerView extends ItemView {
     if (this.isRefreshing) return;
     this.isRefreshing = true;
     try {
+      await this.plugin.waitForMigration();
       await this.loadData();
       // 首次渲染或强制重建
       if (!this.headerEl || !this.mainEl) {
@@ -312,7 +314,7 @@ export class AppVersionManagerView extends ItemView {
     // 进度过滤
     const progressFilter = filterBar.createEl('select', { cls: 'avm-select' });
     progressFilter.createEl('option', { value: '', text: '全部进度' });
-    const progressOrder = getProgressOrder(this.plugin.settings.progressStages);
+    const progressOrder = getProgressOrder(this.plugin.dataConfigService.config.progressStages);
     progressOrder.forEach((progress) => {
       const option = progressFilter.createEl('option', { value: progress, text: progress });
       if (progress === this.currentFilter.progress) {
@@ -734,7 +736,7 @@ export class AppVersionManagerView extends ItemView {
     let projects = this.projects;
 
     // 排除已归档项目（最后一个进度阶段）
-    const lastProgress = getProgressOrder(this.plugin.settings.progressStages).at(-1);
+    const lastProgress = getProgressOrder(this.plugin.dataConfigService.config.progressStages).at(-1);
     if (lastProgress) {
       projects = projects.filter((p) => p.progress !== lastProgress);
     }
@@ -799,8 +801,8 @@ export class AppVersionManagerView extends ItemView {
       this.app,
       this.apps,
       this.versions,
-      this.plugin.settings.progressStages,
-      this.plugin.settings.responsiblePersons,
+      this.plugin.dataConfigService.config.progressStages,
+      this.plugin.dataConfigService.config.responsiblePersons,
       async (data) => {
         try {
           await this.plugin.dataService.createProject(data);
@@ -855,7 +857,7 @@ export class AppVersionManagerView extends ItemView {
   }
 
   private getArchivedProjects(): Project[] {
-    const lastProgress = getProgressOrder(this.plugin.settings.progressStages).at(-1);
+    const lastProgress = getProgressOrder(this.plugin.dataConfigService.config.progressStages).at(-1);
     if (!lastProgress) return [];
     return this.projects.filter((p) => p.progress === lastProgress);
   }
@@ -925,7 +927,7 @@ export class AppVersionManagerView extends ItemView {
     const header = item.createDiv({ cls: 'avm-project-header' });
     header.createDiv({ cls: 'avm-project-name', text: project.name });
 
-    const progressColors = getProgressColors(this.plugin.settings.progressStages);
+    const progressColors = getProgressColors(this.plugin.dataConfigService.config.progressStages);
     const progressBadge = header.createDiv({
       cls: 'avm-progress-badge',
       text: project.progress,
@@ -1135,8 +1137,8 @@ export class AppVersionManagerView extends ItemView {
       project,
       this.apps,
       this.versions,
-      this.plugin.settings.progressStages,
-      this.plugin.settings.responsiblePersons,
+      this.plugin.dataConfigService.config.progressStages,
+      this.plugin.dataConfigService.config.responsiblePersons,
       async (data) => {
         try {
           await this.plugin.dataService.updateProject(project.id, data, project.version);

@@ -47,8 +47,8 @@ export class DataService {
   constructor(app: ObsidianApp, plugin: AppVersionManagerPlugin) {
     this.app = app;
     this.plugin = plugin;
-    this.cache = new DataCache(30000);
-    this.pathResolver = new FilePathResolver(() => this.plugin.settings.dataPath || 'app-version-manager');
+    this.cache = new DataCache(30000, 1000);
+    this.pathResolver = new FilePathResolver(() => this.plugin.settings.dataPath || 'workflow-hub');
   }
 
   /** Delegates to FilePathResolver for backward compatibility (used by main.ts). */
@@ -377,6 +377,8 @@ export class DataService {
     }
 
     this.cache.invalidate('apps:all');
+    this.cache.invalidate('versions:all');
+    this.cache.invalidate(`versions:${id}`);
     return true;
   }
 
@@ -465,6 +467,7 @@ export class DataService {
 
     await this.writeFile(filePath, frontmatter);
     this.cache.invalidate(`versions:${data.appId}`);
+    this.cache.invalidate('versions:all');
 
     return version;
   }
@@ -522,6 +525,7 @@ export class DataService {
     }
 
     this.cache.invalidate(`versions:${version.appId}`);
+    this.cache.invalidate('versions:all');
     return version;
   }
 
@@ -554,6 +558,7 @@ export class DataService {
     }
 
     this.cache.invalidate(`versions:${appId}`);
+    this.cache.invalidate('versions:all');
     return true;
   }
 
@@ -586,7 +591,7 @@ export class DataService {
   async getProjectsByVersionId(versionId: string): Promise<Project[]> {
     const allProjects = await this.getAllProjects();
     const filtered = allProjects.filter((p) => p.appVersionLinks.some((link) => link.versionId === versionId));
-    const progressOrder = getProgressOrder(this.plugin.settings.progressStages);
+    const progressOrder = getProgressOrder(this.plugin.dataConfigService.config.progressStages);
     return filtered.sort((a, b) => progressOrder.indexOf(a.progress) - progressOrder.indexOf(b.progress));
   }
 
@@ -594,7 +599,7 @@ export class DataService {
   async getProjectsByAppId(appId: string): Promise<Project[]> {
     const allProjects = await this.getAllProjects();
     const filtered = allProjects.filter((p) => p.appVersionLinks.some((link) => link.appId === appId));
-    const progressOrder = getProgressOrder(this.plugin.settings.progressStages);
+    const progressOrder = getProgressOrder(this.plugin.dataConfigService.config.progressStages);
     return filtered.sort((a, b) => progressOrder.indexOf(a.progress) - progressOrder.indexOf(b.progress));
   }
 
@@ -606,7 +611,7 @@ export class DataService {
       const content = 'readContent' in file ? await file.readContent() : await this.app.vault.adapter.read(file.path);
       const frontmatter = parseFrontmatter(content);
       if (!frontmatter) return null;
-      return extractProjectFields(frontmatter, ctime, mtime, getFirstProgress(this.plugin.settings.progressStages));
+      return extractProjectFields(frontmatter, ctime, mtime, getFirstProgress(this.plugin.dataConfigService.config.progressStages));
     } catch (error) {
       console.error('[AppVersionManager] Failed to parse project file:', file.path, error);
       return null;
@@ -654,10 +659,10 @@ export class DataService {
       features: data.features || '',
       spec: data.spec || '',
       requirements: data.requirements || '',
-      progress: data.progress || getFirstProgress(this.plugin.settings.progressStages),
+      progress: data.progress || getFirstProgress(this.plugin.dataConfigService.config.progressStages),
       progressHistory: [
         {
-          progress: data.progress || getFirstProgress(this.plugin.settings.progressStages),
+          progress: data.progress || getFirstProgress(this.plugin.dataConfigService.config.progressStages),
           changedAt: now,
         },
       ],
@@ -712,7 +717,7 @@ export class DataService {
     this.cache.set(`project:${project.id}`, project);
 
     // Create default todos for the new project
-    const defaultTodos = this.plugin.settings.defaultTodos;
+    const defaultTodos = this.plugin.dataConfigService.config.defaultTodos;
     if (defaultTodos.length > 0) {
       for (const template of defaultTodos) {
         if (template.content.trim()) {
@@ -721,7 +726,7 @@ export class DataService {
             link: template.link?.trim() || undefined,
             dueDate: template.dueDate || undefined,
             projectId: project.id,
-            categoryId: this.plugin.settings.defaultCategoryId,
+            categoryId: this.plugin.dataConfigService.config.defaultCategoryId,
           });
         }
       }

@@ -21,12 +21,12 @@ export class ResponsiblePersonModal extends Modal {
   }
 
   private getPersons(): string[] {
-    return this.plugin.settings.responsiblePersons ?? [];
+    return this.plugin.dataConfigService.config.responsiblePersons ?? [];
   }
 
   private async savePersons(persons: string[]) {
-    this.plugin.settings.responsiblePersons = persons;
-    await this.plugin.saveSettings();
+    this.plugin.dataConfigService.config.responsiblePersons = persons;
+    await this.plugin.dataConfigService.save();
     this.onChange?.();
   }
 

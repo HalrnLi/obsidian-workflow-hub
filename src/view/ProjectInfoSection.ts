@@ -54,8 +54,15 @@ export class ProjectInfoSection {
 
   private async saveItems(items: ProjectInfoItem[]): Promise<void> {
     try {
-      await this.plugin.dataService.updateProject(this.project.id, { projectInfo: items }, this.project.version);
-      this.project.projectInfo = items;
+      const updated = await this.plugin.dataService.updateProject(
+        this.project.id,
+        { projectInfo: items },
+        this.project.version,
+      );
+      if (updated) {
+        this.project.projectInfo = items;
+        this.project.version = updated.version;
+      }
       this.onChange?.();
       await this.render();
     } catch (e) {

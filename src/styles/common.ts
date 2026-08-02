@@ -114,7 +114,6 @@ export const COMMON = `
 
 .avm-main { flex: 1; overflow: hidden; width: 100%; }
 
-.avm-dual-pane { display: flex; height: 100%; width: 100%; }
 
 .avm-left-pane {
   width: 280px;
@@ -842,9 +841,6 @@ export const COMMON = `
   flex: 1;
   overflow: hidden;
   width: 100%;
-}
-.avm-detail-view-container > .avm-dual-pane {
-  height: 100%;
 }
 .avm-project-detail-pane {
   width: 300px;

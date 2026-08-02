@@ -1,6 +1,7 @@
 import { App as ObsidianApp, ButtonComponent, Notice, Modal, Setting, Menu } from 'obsidian';
 import AppVersionManagerPlugin from '../main';
-import { App, Version, Project } from '../types';
+import { App, Version, Project, getProgressColors } from '../types';
+import { compareVersions } from '../utils/idUtils';
 import { CreateAppModal, RenameAppModal, CreateVersionModal } from './modals';
 import { ConfirmModal } from './ConfirmModal';
 import { createSaveButtons } from './ModalUtils';
@@ -108,7 +109,7 @@ export class AppVersionManageView {
       .filter((v) => v.appId === app.id)
       .sort((a, b) => {
         if (a.isArchived !== b.isArchived) return a.isArchived ? 1 : -1;
-        return b.versionNumber.localeCompare(a.versionNumber);
+        return compareVersions(b.versionNumber, a.versionNumber);
       });
 
     if (appVersions.length === 0) {
@@ -296,13 +297,7 @@ export class AppVersionManageView {
   }
 
   private getProgressColor(progress: string): string {
-    const colors: Record<string, string> = {
-      待规划: '#94a3b8',
-      开发中: '#3b82f6',
-      测试中: '#f59e0b',
-      已上线: '#10b981',
-      已归档: '#6b7280',
-    };
+    const colors = getProgressColors(this.plugin.dataConfigService.config.progressStages);
     return colors[progress] || '#94a3b8';
   }
 
