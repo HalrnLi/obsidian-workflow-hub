@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, copyFileSync } from 'fs';
-import { join, isAbsolute, dirname } from 'path';
+import { join, isAbsolute } from 'path';
 import { normalizePath } from 'obsidian';
 import AppVersionManagerPlugin from '../main';
 import { Todo, TodoStatus, TodoPriority, ProjectInfoItem } from '../types';
@@ -529,7 +529,7 @@ export class MigrationService {
   }
 
   private async writeNewFile(path: string, content: string): Promise<void> {
-    const dir = dirname(path);
+    const dir = path.substring(0, path.lastIndexOf('/'));
     await this.ensureFolder(dir);
     if (this.isAbsolutePath(path)) {
       writeFileSync(path, content, 'utf-8');

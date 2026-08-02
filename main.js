@@ -19743,9 +19743,9 @@ var init_xlsx = __esm({
         }
         return L.length - R.length;
       }
-      function dirname3(p) {
+      function dirname(p) {
         if (p.charAt(p.length - 1) == "/")
-          return p.slice(0, -1).indexOf("/") === -1 ? p : dirname3(p.slice(0, -1));
+          return p.slice(0, -1).indexOf("/") === -1 ? p : dirname(p.slice(0, -1));
         var c = p.lastIndexOf("/");
         return c === -1 ? p : p.slice(0, c + 1);
       }
@@ -20236,7 +20236,7 @@ var init_xlsx = __esm({
           data.push([cfb.FullPaths[i2], cfb.FileIndex[i2]]);
         }
         for (i2 = 0; i2 < data.length; ++i2) {
-          var dad = dirname3(data[i2][0]);
+          var dad = dirname(data[i2][0]);
           s = fullPaths[dad];
           if (!s) {
             data.push([dad, {
@@ -20273,16 +20273,16 @@ var init_xlsx = __esm({
             elt.type = 5;
           } else if (nm.slice(-1) == "/") {
             for (j = i2 + 1; j < data.length; ++j)
-              if (dirname3(cfb.FullPaths[j]) == nm)
+              if (dirname(cfb.FullPaths[j]) == nm)
                 break;
             elt.C = j >= data.length ? -1 : j;
             for (j = i2 + 1; j < data.length; ++j)
-              if (dirname3(cfb.FullPaths[j]) == dirname3(nm))
+              if (dirname(cfb.FullPaths[j]) == dirname(nm))
                 break;
             elt.R = j >= data.length ? -1 : j;
             elt.type = 1;
           } else {
-            if (dirname3(cfb.FullPaths[i2 + 1] || "") == dirname3(nm))
+            if (dirname(cfb.FullPaths[i2 + 1] || "") == dirname(nm))
               elt.R = i2 + 1;
             elt.type = 2;
           }
@@ -40062,7 +40062,7 @@ var TodoService = class {
   }
   /** 确保文件所在目录存在（包括负责人子文件夹） */
   async ensureFileFolder(filePath) {
-    const dir = (0, import_path3.dirname)(filePath);
+    const dir = filePath.substring(0, filePath.lastIndexOf("/"));
     if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
       const { mkdirSync: mkdirSync5, existsSync: existsSync5 } = await import("fs");
       if (!existsSync5(dir))
@@ -41053,7 +41053,7 @@ var MigrationService = class {
     return this.isAbsolutePath(dataPath) ? (0, import_path5.join)(dataPath, subfolder, fileName) : (0, import_obsidian31.normalizePath)(`${dataPath}/${subfolder}/${fileName}`);
   }
   async writeNewFile(path, content) {
-    const dir = (0, import_path5.dirname)(path);
+    const dir = path.substring(0, path.lastIndexOf("/"));
     await this.ensureFolder(dir);
     if (this.isAbsolutePath(path)) {
       (0, import_fs5.writeFileSync)(path, content, "utf-8");

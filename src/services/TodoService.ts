@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync, unlinkSync, readdirSync, statSync, mkdirSync } from 'fs';
-import { join, dirname } from 'path';
+import { join } from 'path';
 import { normalizePath, TFile } from 'obsidian';
 import AppVersionManagerPlugin from '../main';
 import { Todo, CreateTodoInput, TodoStatus, ConcurrencyConflictError, PluginSettings } from '../types';
@@ -298,7 +298,7 @@ export class TodoService {
 
   /** 确保文件所在目录存在（包括负责人子文件夹） */
   private async ensureFileFolder(filePath: string): Promise<void> {
-    const dir = dirname(filePath);
+    const dir = filePath.substring(0, filePath.lastIndexOf('/'));
     if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
       const { mkdirSync, existsSync } = await import('fs');
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
