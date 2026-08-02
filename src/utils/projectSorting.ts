@@ -1,4 +1,5 @@
 import { Project, getProgressOrder, getLastProgress, getNextStageInfo, ProgressStage } from '../types';
+import { parseLocalDate, todayStart } from './dateUtils';
 
 export interface SortableProject {
   project: Project;
@@ -30,10 +31,8 @@ export function calculateOverdueStats(
       continue;
     }
 
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    const nextDate = new Date(nextStageInfo.time);
-    nextDate.setHours(0, 0, 0, 0);
+    const now = todayStart();
+    const nextDate = parseLocalDate(nextStageInfo.time);
 
     const diffDays = Math.floor((nextDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
@@ -50,8 +49,7 @@ export function calculateOverdueStats(
 }
 
 export function sortProjectsByPriority(projects: Project[], stages: ProgressStage[]): Project[] {
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
+  const now = todayStart();
   const lastProgress = getLastProgress(stages);
   const progressOrder = getProgressOrder(stages);
 
@@ -65,8 +63,7 @@ export function sortProjectsByPriority(projects: Project[], stages: ProgressStag
       priority = 5;
       sortTime = Number.MAX_SAFE_INTEGER;
     } else if (nextStageInfo.time) {
-      const nextDate = new Date(nextStageInfo.time);
-      nextDate.setHours(0, 0, 0, 0);
+      const nextDate = parseLocalDate(nextStageInfo.time);
 
       const daysDiff = Math.floor((nextDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
@@ -104,10 +101,8 @@ export function isProjectHighlighted(project: Project, warningDays: number = 3):
   const nextStageInfo = getNextStageInfo(project);
   if (!nextStageInfo.time) return false;
 
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  const nextDate = new Date(nextStageInfo.time);
-  nextDate.setHours(0, 0, 0, 0);
+  const now = todayStart();
+  const nextDate = parseLocalDate(nextStageInfo.time);
 
   const daysDiff = Math.floor((nextDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
@@ -123,11 +118,9 @@ export function checkOverdue(project: Project, stages: ProgressStage[], warningD
   const nextStageInfo = getNextStageInfo(project);
   if (!nextStageInfo.time) return false;
 
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
+  const now = todayStart();
 
-  const nextDate = new Date(nextStageInfo.time);
-  nextDate.setHours(0, 0, 0, 0);
+  const nextDate = parseLocalDate(nextStageInfo.time);
 
   const diffDays = Math.floor((nextDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 

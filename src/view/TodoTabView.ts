@@ -7,6 +7,7 @@ import { CreateTodoModal, CreateTodoData } from './modals/CreateTodoModal';
 import { CategoryModal } from './modals/CategoryModal';
 import { ConfirmModal } from './ConfirmModal';
 import { openExternalLink } from '../utils/linkUtils';
+import { parseLocalDate } from '../utils/dateUtils';
 import { ImportExportService } from '../services/ImportExportService';
 import { ResponsiblePersonModal } from './modals/ResponsiblePersonModal';
 
@@ -36,6 +37,7 @@ export class TodoTabView {
   private searchDebounce: number | null = null;
   private tempTasks: TempTask[] = [];
   private tempPanelVisible = true;
+  private isRendering = false;
 
   constructor(containerEl: HTMLElement, plugin: AppVersionManagerPlugin, onRefresh?: () => void) {
     this.containerEl = containerEl;
@@ -44,36 +46,84 @@ export class TodoTabView {
   }
 
   async render(): Promise<void> {
+    if (this.isRendering) return;
+    this.isRendering = true;
+
+    // 阶段 1：获取所有数据（纯计算，不碰 DOM）
+    let todos: Todo[] = [];
+    let projectCache = new Map<string, string>();
     try {
       this.categories = await this.plugin.categoryService.getAll();
     } catch (e) {
       console.error('加载分类失败', e);
     }
-
-    // 同步 settings.responsiblePersons 到本地（首次或设置变更时）
     this.selectedPersons = this.plugin.settings.responsiblePersons ?? [];
 
+    try {
+      const dateRange = this.getDateRange();
+      todos = await this.plugin.todoService.queryTodos({
+        categoryId: this.selectedCategoryId === 'all' ? undefined : this.selectedCategoryId,
+        status: this.statusFilter === 'all' ? undefined : this.statusFilter,
+        projectFilter: this.projectFilter,
+        keyword: this.keyword,
+        updatedDateFrom: dateRange.from,
+        updatedDateTo: dateRange.to,
+      });
+    } catch (e) {
+      console.error('查询待办失败', e);
+    }
+
+    todos = sortTodos(todos);
+
+    // 预加载项目信息
+    for (const todo of todos) {
+      if (todo.projectId && !projectCache.has(todo.projectId)) {
+        try {
+          const p = await this.plugin.dataService.getProjectById(todo.projectId);
+          projectCache.set(todo.projectId, p?.name ?? '已删除项目');
+        } catch {
+          projectCache.set(todo.projectId, '未知项目');
+        }
+      }
+    }
+
+    // 阶段 2：同步一次性渲染 DOM（无 await，不可中断）
     this.containerEl.empty();
     const wrapper = this.containerEl.createDiv({ cls: 'avm-todo-wrapper' });
 
-    // 左侧：长期待办主体
     const mainEl = wrapper.createDiv({ cls: 'avm-todo-main' });
     this.renderPersonSelector(mainEl);
     this.renderCategoryTabs(mainEl);
     this.renderFilterBar(mainEl);
-    await this.renderList(mainEl);
+    this.renderListSync(mainEl, todos, projectCache);
 
-    // 临时待办折叠按钮（长期待办顶部右侧）
     const toggleBtn = mainEl.createDiv({ cls: 'avm-temp-toggle-btn', text: this.tempPanelVisible ? '▶' : '◀' });
     toggleBtn.title = this.tempPanelVisible ? '收起临时待办' : '展开临时待办';
-    toggleBtn.addEventListener('click', () => {
+    toggleBtn.addEventListener('click', async () => {
       this.tempPanelVisible = !this.tempPanelVisible;
-      this.render();
+      await this.render();
     });
 
-    // 右侧：临时待办面板
     if (this.tempPanelVisible) {
       this.renderTempPanel(wrapper);
+    }
+
+    this.isRendering = false;
+  }
+
+  /** 同步渲染待办列表（传入预加载的数据） */
+  private renderListSync(container: HTMLElement, todos: Todo[], projectCache: Map<string, string>): void {
+    let listEl = container.querySelector('.avm-todo-list') as HTMLElement | null;
+    if (listEl) listEl.empty();
+    else listEl = container.createDiv({ cls: 'avm-todo-list' });
+
+    if (todos.length === 0) {
+      listEl.createDiv({ cls: 'avm-empty-state', text: '暂无符合条件的待办' });
+      return;
+    }
+
+    for (const todo of todos) {
+      this.renderTodoItem(listEl, todo, projectCache.get(todo.projectId ?? '') ?? '');
     }
   }
 
@@ -392,9 +442,9 @@ export class TodoTabView {
           tabEl.style.paddingLeft = '9px';
         }
       }
-      tabEl.addEventListener('click', () => {
+      tabEl.addEventListener('click', async () => {
         this.selectedCategoryId = key;
-        this.render();
+        await this.render();
       });
     });
 
@@ -417,10 +467,10 @@ export class TodoTabView {
       { v: 'done', t: '已完成' },
     ].forEach((o) => statusSelect.createEl('option', { value: o.v, text: o.t }));
     statusSelect.value = this.statusFilter;
-    statusSelect.addEventListener('change', (e) => {
+    statusSelect.addEventListener('change', async (e) => {
       const v = (e.target as HTMLSelectElement).value;
       this.statusFilter = v === 'all' ? 'all' : (v as TodoStatus);
-      this.renderList(container);
+      await this.render();
     });
 
     const projSelect = bar.createEl('select', { cls: 'avm-select' });
@@ -430,9 +480,9 @@ export class TodoTabView {
       { v: 'unbound', t: '未绑定' },
     ].forEach((o) => projSelect.createEl('option', { value: o.v, text: o.t }));
     projSelect.value = this.projectFilter;
-    projSelect.addEventListener('change', (e) => {
+    projSelect.addEventListener('change', async (e) => {
       this.projectFilter = (e.target as HTMLSelectElement).value as 'all' | 'bound' | 'unbound';
-      this.renderList(container);
+      await this.render();
     });
 
     const dateSelect = bar.createEl('select', { cls: 'avm-select' });
@@ -444,9 +494,9 @@ export class TodoTabView {
       { v: '30days', t: '近30天' },
     ].forEach((o) => dateSelect.createEl('option', { value: o.v, text: o.t }));
     dateSelect.value = this.datePreset;
-    dateSelect.addEventListener('change', (e) => {
+    dateSelect.addEventListener('change', async (e) => {
       this.datePreset = (e.target as HTMLSelectElement).value as typeof this.datePreset;
-      this.renderList(container);
+      await this.render();
     });
 
     const searchInput = bar.createEl('input', {
@@ -457,7 +507,7 @@ export class TodoTabView {
     searchInput.addEventListener('input', (e) => {
       this.keyword = (e.target as HTMLInputElement).value;
       if (this.searchDebounce) clearTimeout(this.searchDebounce);
-      this.searchDebounce = window.setTimeout(() => this.renderList(container), 200);
+      this.searchDebounce = window.setTimeout(() => { this.render(); }, 200);
     });
 
     new ButtonComponent(bar)
@@ -471,46 +521,6 @@ export class TodoTabView {
       .onClick(() => this.exportCSV());
   }
 
-  private async renderList(container: HTMLElement): Promise<void> {
-    let listEl = container.querySelector('.avm-todo-list') as HTMLElement | null;
-    if (listEl) listEl.empty();
-    else listEl = container.createDiv({ cls: 'avm-todo-list' });
-
-    let todos: Todo[] = [];
-    try {
-      const dateRange = this.getDateRange();
-      todos = await this.plugin.todoService.queryTodos({
-        categoryId: this.selectedCategoryId === 'all' ? undefined : this.selectedCategoryId,
-        status: this.statusFilter === 'all' ? undefined : this.statusFilter,
-        projectFilter: this.projectFilter,
-        keyword: this.keyword,
-        createdDateFrom: dateRange.from,
-        createdDateTo: dateRange.to,
-      });
-    } catch (e) {
-      console.error('查询待办失败', e);
-    }
-
-    todos = sortTodos(todos);
-
-    if (todos.length === 0) {
-      listEl.createDiv({ cls: 'avm-empty-state', text: '暂无符合条件的待办' });
-      return;
-    }
-
-    const projectCache = new Map<string, string>();
-    for (const todo of todos) {
-      if (todo.projectId && !projectCache.has(todo.projectId)) {
-        try {
-          const p = await this.plugin.dataService.getProjectById(todo.projectId);
-          projectCache.set(todo.projectId, p?.name ?? '已删除项目');
-        } catch {
-          projectCache.set(todo.projectId, '未知项目');
-        }
-      }
-      this.renderTodoItem(listEl, todo, projectCache.get(todo.projectId ?? '') ?? '');
-    }
-  }
 
   private renderTodoItem(listEl: HTMLElement, todo: Todo, projectName: string): void {
     const item = listEl.createDiv({
@@ -524,7 +534,7 @@ export class TodoTabView {
       try {
         const next: TodoStatus = todo.status === 'done' ? 'todo' : 'done';
         await this.plugin.todoService.update(todo.id, { status: next });
-        this.render();
+        await this.render();
         this.onRefresh?.();
       } catch (err) {
         new Notice(err instanceof Error ? err.message : String(err));
@@ -576,13 +586,13 @@ export class TodoTabView {
       menu.addItem((it) =>
         it.setTitle(todo.pinned ? '取消置顶' : '置顶').onClick(async () => {
           await this.plugin.todoService.update(todo.id, { pinned: !todo.pinned });
-          this.render();
+          await this.render();
           this.onRefresh?.();
         }),
       );
       if (todo.dueDate) {
         const hasReminder = this.plugin.reminderService.hasReminder(todo.id);
-        const dueDate = new Date(todo.dueDate);
+        const dueDate = parseLocalDate(todo.dueDate);
         const now = new Date();
         if (dueDate > now) {
           const delayMs = dueDate.getTime() - now.getTime();
@@ -596,8 +606,7 @@ export class TodoTabView {
                 } else {
                   this.plugin.reminderService.setReminder(todo.id, todo.content, delayMs, todo.link);
                 }
-                this.render();
-                this.onRefresh?.();
+                await this.render();
               }),
           );
         }
@@ -665,7 +674,7 @@ export class TodoTabView {
       async (data: CreateTodoData) => {
         try {
           await this.plugin.todoService.create(data);
-          this.render();
+          await this.render();
           this.onRefresh?.();
         } catch (e) {
           new Notice(e instanceof Error ? e.message : String(e));
@@ -682,7 +691,7 @@ export class TodoTabView {
       async (data: CreateTodoData) => {
         try {
           await this.plugin.todoService.update(todo.id, data, todo.version);
-          this.render();
+          await this.render();
           this.onRefresh?.();
         } catch (e) {
           new Notice(e instanceof Error ? e.message : String(e));
@@ -700,7 +709,7 @@ export class TodoTabView {
       async () => {
         try {
           await this.plugin.todoService.delete(todo.id);
-          this.render();
+          await this.render();
           this.onRefresh?.();
         } catch (e) {
           new Notice(e instanceof Error ? e.message : String(e));
@@ -719,8 +728,8 @@ export class TodoTabView {
         status: this.statusFilter === 'all' ? undefined : this.statusFilter,
         projectFilter: this.projectFilter,
         keyword: this.keyword,
-        createdDateFrom: dateRange.from,
-        createdDateTo: dateRange.to,
+        updatedDateFrom: dateRange.from,
+        updatedDateTo: dateRange.to,
       });
 
       if (todos.length === 0) {

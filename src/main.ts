@@ -88,6 +88,7 @@ export default class AppVersionManagerPlugin extends Plugin {
 
   onunload() {
     (this.app.workspace as any).unregisterViewType?.(VIEW_TYPE_APP_VERSION_MANAGER);
+    this.dataService.cache.destroy();
     this.backupService.clearBackupSchedule();
     this.todoInheritanceService.clear();
     this.reminderService.clearAll();
@@ -97,6 +98,15 @@ export default class AppVersionManagerPlugin extends Plugin {
   /** 通知所有视图刷新（提醒服务回调用） */
   notifyViewsToRefresh(): void {
     this.app.workspace.trigger('app-version-manager:refresh');
+  }
+
+  /** 注册视图刷新事件（供视图订阅） */
+  registerRefreshHandler(handler: () => void): () => void {
+    const evt = (this.app.workspace as any).on('app-version-manager:refresh', handler);
+    // 返回取消注册函数
+    return () => {
+      this.app.workspace.offref(evt);
+    };
   }
 
   injectStyles() {
@@ -346,13 +356,14 @@ class AppVersionManagerSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName('预发布轮次')
       .setDesc(
-        '设置哪个 B 轮为预发布轮次。到达该轮次后，项目卡片将显示预发布提示。触发条件：上一轮系统测试日期已到达/已过，直到项目状态置为已发布。',
+        '设置哪个阶段为预发布轮次。当该阶段或之后的任一时间已过，项目卡片将显示预发布提示。即使中间阶段时间未填，只要后续阶段时间已过即触发。',
       )
       .addDropdown((dropdown) => {
-        dropdown.addOption('B1', 'B1');
-        dropdown.addOption('B2', 'B2');
-        dropdown.addOption('B3', 'B3（默认）');
-        dropdown.addOption('B4', 'B4');
+        dropdown.addOption('B2系统测试', 'B2系统测试');
+        dropdown.addOption('B3集成测试', 'B3集成测试（默认）');
+        dropdown.addOption('B3系统测试', 'B3系统测试');
+        dropdown.addOption('B4集成测试', 'B4集成测试');
+        dropdown.addOption('B4系统测试', 'B4系统测试');
         dropdown.setValue(this.plugin.settings.preReleaseRound);
         dropdown.onChange(async (value) => {
           this.plugin.settings.preReleaseRound = value;

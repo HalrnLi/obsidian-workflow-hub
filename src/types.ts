@@ -1,3 +1,5 @@
+import { parseLocalDate, todayStart } from './utils/dateUtils';
+
 export class ConcurrencyConflictError extends Error {
   constructor(
     public entityName: string,
@@ -193,7 +195,7 @@ export interface PluginSettings {
   autoRefreshInterval: number;
   defaultTodos: DefaultTodoTemplate[];
   responsiblePersons: string[];
-  preReleaseRound: string; // 哪个B轮为预发布轮次，B1/B2/B3/B4，默认B3
+  preReleaseRound: string; // 哪个阶段为预发布轮次，可选 B2系统测试/B3集成测试/B3系统测试/B4集成测试/B4系统测试，默认 B3集成测试
   /** 新建待办默认分类 ID（null=未分类） */
   defaultCategoryId: string | null;
   /** 数据迁移是否已完成（避免重复迁移） */
@@ -221,7 +223,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   autoRefreshInterval: 2,
   defaultTodos: [],
   responsiblePersons: [],
-  preReleaseRound: 'B3',
+  preReleaseRound: 'B3集成测试',
   defaultCategoryId: null,
   migrationCompleted: false,
   inheritanceLastRun: null,
@@ -263,11 +265,15 @@ export const TEST_STAGES = [
 
 // B 轮阶段配色，供各视图的轮次徽章统一使用（避免重复定义）
 export const ROUND_COLORS: Record<string, string> = {
-  B1: '#3b82f6',
-  B2: '#8b5cf6',
-  B3: '#f59e0b',
-  B4: '#ef4444',
-  未安排: '#64748b',
+  'B1集成测试': '#3b82f6',
+  'B1系统测试': '#3b82f6',
+  'B2集成测试': '#8b5cf6',
+  'B2系统测试': '#8b5cf6',
+  'B3集成测试': '#f59e0b',
+  'B3系统测试': '#f59e0b',
+  'B4集成测试': '#ef4444',
+  'B4系统测试': '#ef4444',
+  '未安排': '#64748b',
 };
 
 // 日期解析函数，支持多种格式
@@ -389,56 +395,86 @@ export function parseDateInput(input: string): string | null {
   return null; // 无法解析
 }
 
-// B2 系统测试及之后的所有阶段字段（用于判断项目是否已进入预发布高亮）
-const B2_AND_LATER_FIELDS: string[] = [
-  'b2SystemTestTime',
-  'b2IntegrationTestTime',
-  'b3SystemTestTime',
-  'b3IntegrationTestTime',
-  'b4SystemTestTime',
-  'b4IntegrationTestTime',
-];
+/**
+ * 预发布轮选项对应的触发点（上一轮的系统测试阶段 key）。
+ * 例如：B3集成测试 的触发点是 B2系统测试，即 B2 系统测试时间已过则进入预发布。
+ */
+const PRE_RELEASE_TRIGGERS: Record<string, string> = {
+  'B2系统测试': 'b1SystemTestTime',
+  'B3集成测试': 'b2SystemTestTime',
+  'B3系统测试': 'b2SystemTestTime',
+  'B4集成测试': 'b3SystemTestTime',
+  'B4系统测试': 'b3SystemTestTime',
+};
 
 /**
  * 判断项目是否已进入预发布状态。
- * 规则：项目已进入 B2 系统测试或更后的阶段（任一轮次字段有值即视为已进入），
- * 且项目未到最后一个进度阶段（已发布）。不比较日期，无论提测时间是否已过。
+ * 规则：从触发点（上一轮系统测试）开始的任一时间已过（或今天），即视为已进入预发布阶段。
+ * 即使中间某些阶段时间未填，只要触发点或之后的某个阶段时间已过，就高亮。
  */
-export function isProjectInPreRelease(project: Project, _preReleaseRound: string, lastProgress: string): boolean {
+export function isProjectInPreRelease(project: Project, preReleaseRound: string, lastProgress: string): boolean {
   // 已发布的项目不显示预发布提示
   if (project.progress === lastProgress) return false;
 
-  // 只要 B2 系统测试或更后的任一轮次字段有值，即视为已进入预发布阶段
-  return B2_AND_LATER_FIELDS.some((field) => {
-    const val = (project as any)[field];
-    return val && val.trim() !== '';
-  });
+  // 找到触发点阶段
+  const triggerKey = PRE_RELEASE_TRIGGERS[preReleaseRound];
+  if (!triggerKey) return false;
+
+  const triggerIndex = TEST_STAGES.findIndex((s) => s.key === triggerKey);
+  if (triggerIndex < 0) return false;
+
+  const now = todayStart();
+
+  // 检查触发点及之后的任一时间是否已过（或今天）
+  for (let i = triggerIndex; i < TEST_STAGES.length; i++) {
+    const timeStr = (project as any)[TEST_STAGES[i].key];
+    if (timeStr && timeStr.trim() !== '') {
+      const stageDate = parseLocalDate(timeStr);
+      if (stageDate <= now) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 /**
- * 获取项目当前所在的 B 轮阶段。
- * 基于最近的未来日期判断；若所有日期已过，取最晚的 B 轮；若无日期则返回 '未安排'。
+ * 获取项目当前所在的 B 轮阶段（完整标签）。
+ *
+ * 规则：以最近一个已过的日期作为当前阶段。
+ *   - 若 B1 系统测试已过，B2 集成测试未填或未到 → 显示 "B1系统测试"
+ *   - 若所有日期都已过 → 显示最晚一个有日期的阶段
+ *   - 若所有日期都未到 → 显示最早一个有日期的阶段
+ *   - 若无任何日期 → 显示 '未安排'
  */
 export function getCurrentBRound(project: Project): string {
-  const nextInfo = getNextStageInfo(project);
-  if (nextInfo.stage !== '无') {
-    const match = nextInfo.stage.match(/B(\d)/);
-    return match ? `B${match[1]}` : '未安排';
-  }
-  // 所有日期已过 — 找最晚有日期的 B 轮
+  const now = todayStart();
+
+  // 找最近一个已过的阶段（从后往前找）
   for (let i = TEST_STAGES.length - 1; i >= 0; i--) {
-    if ((project as any)[TEST_STAGES[i].key]) {
-      const match = TEST_STAGES[i].key.match(/b(\d)/);
-      return match ? `B${match[1]}` : '未安排';
+    const timeStr = (project as any)[TEST_STAGES[i].key];
+    if (timeStr) {
+      const stageDate = parseLocalDate(timeStr);
+      if (stageDate <= now) {
+        return TEST_STAGES[i].label;
+      }
     }
   }
+
+  // 所有日期都未到 → 返回最早一个有日期的阶段
+  for (const stage of TEST_STAGES) {
+    if ((project as any)[stage.key]) {
+      return stage.label;
+    }
+  }
+
   return '未安排';
 }
 
 // 获取项目的下一阶段信息
 export function getNextStageInfo(project: Project): { stage: string; time: string } {
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
+  const now = todayStart();
 
   let nextStage: string | null = null;
   let nextTime: string | null = null;
@@ -447,8 +483,7 @@ export function getNextStageInfo(project: Project): { stage: string; time: strin
   for (const stage of TEST_STAGES) {
     const timeStr = (project as any)[stage.key];
     if (timeStr) {
-      const stageDate = new Date(timeStr);
-      stageDate.setHours(0, 0, 0, 0);
+      const stageDate = parseLocalDate(timeStr);
 
       if (stageDate >= now) {
         if (!nextDate || stageDate < nextDate) {

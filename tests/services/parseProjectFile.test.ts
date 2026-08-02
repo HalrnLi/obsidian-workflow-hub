@@ -102,6 +102,7 @@ function makeProjectFile(id: string, name: string): TFile {
   file.basename = `${name}__${id}`;
   file.extension = 'md';
   file.stat = { ctime: Date.parse('2026-01-01'), mtime: Date.parse('2026-01-15') };
+  (file as any).readContent = vi.fn(async () => '');
   return file;
 }
 
@@ -135,7 +136,7 @@ describe('DataService.parseProjectFile — YAML 解析边界', () => {
       if (path === projFile.path || path === projFile.name) return projFile;
       return null;
     });
-    mocks.vault.read.mockResolvedValue(`---
+    (projFile as any).readContent.mockResolvedValue(`---
 id: proj-1
 name:
 versionId: ver-1
@@ -159,7 +160,7 @@ version: 1
       if (path === projFile.path || path === projFile.name) return projFile;
       return null;
     });
-    mocks.vault.read.mockResolvedValue(`---
+    (projFile as any).readContent.mockResolvedValue(`---
 id: proj-1
 name: 123
 versionId: ver-1
@@ -181,7 +182,7 @@ version: 1
       if (path === projFile.path || path === projFile.name) return projFile;
       return null;
     });
-    mocks.vault.read.mockResolvedValue(`---
+    (projFile as any).readContent.mockResolvedValue(`---
 id: proj-1
 name: {key: value}
 versionId: ver-1
@@ -203,7 +204,7 @@ version: 1
       if (path === projFile.path || path === projFile.name) return projFile;
       return null;
     });
-    mocks.vault.read.mockResolvedValue(`---
+    (projFile as any).readContent.mockResolvedValue(`---
 id: proj-1
 name: Test
 versionId: ver-1

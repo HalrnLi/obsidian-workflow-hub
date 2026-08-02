@@ -59,3 +59,9 @@ Build output: `main.js` (esbuild bundle, committed for distribution).
 - **Migration:** `MigrationService` auto-migrates legacy data on first load.
 - **UI:** Three tabs (Projects, Todos, Released). Projects support dual-pane and table views; todos have category tabs + multi-dimensional filtering.
 - **Data layer:** `DataService` is the central store; domain services (`CategoryService`, `TodoService`, `BackupService`, etc.) handle specific logic.
+
+## 本地部署路径
+
+- **Obsidian 插件路径：** `/Users/lilingtao/知识库/.obsidian/plugins/obsidian-workflow-hub`
+- 修改完成后运行 `npm run deploy` 即可构建并部署到该路径
+- 部署命令会将 `main.js`、`manifest.json`、`styles.css` 复制到插件目录

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync, unlinkSync, readdirSync, statSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { normalizePath, TFile } from 'obsidian';
 import AppVersionManagerPlugin from '../main';
 import { Todo, CreateTodoInput, TodoStatus, ConcurrencyConflictError, PluginSettings } from '../types';
@@ -69,11 +69,19 @@ export class TodoService {
       : `${dataPath}/todos`;
   }
 
-  /** 文件命名：{content前20字符 sanitize}__{id}.md */
-  private getTodoFilePath(todo: Pick<Todo, 'id' | 'content'>): string {
+  /** 文件路径：按负责人分文件夹，无负责人放根目录 */
+  private getTodoFilePath(todo: Pick<Todo, 'id' | 'content'> | Todo): string {
     const folder = this.getTodosFolder();
     const name = sanitizeFileName((todo.content || 'untitled').slice(0, 20));
     const fileName = `${name}__${todo.id}.md`;
+    // 按负责人分文件夹
+    const person = 'responsiblePerson' in todo ? todo.responsiblePerson : '';
+    if (person && person.trim()) {
+      const personFolder = sanitizeFileName(person.trim());
+      return this.plugin.dataService.pathResolver.isAbsolutePath()
+        ? this.plugin.dataService.pathResolver.joinPath(folder, personFolder, fileName)
+        : normalizePath(`${folder}/${personFolder}/${fileName}`);
+    }
     return this.plugin.dataService.pathResolver.isAbsolutePath()
       ? this.plugin.dataService.pathResolver.joinPath(folder, fileName)
       : normalizePath(`${folder}/${fileName}`);
@@ -188,21 +196,7 @@ export class TodoService {
 
     if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
       if (!existsSync(folder)) return [];
-      for (const item of readdirSync(folder)) {
-        const full = join(folder, item);
-        try {
-          if (statSync(full).isFile() && item.endsWith('.md')) {
-            const content = readFileSync(full, 'utf-8');
-            const todo = this.parseTodoContent(content);
-            if (todo && !seenIds.has(todo.id)) {
-              seenIds.add(todo.id);
-              todos.push(todo);
-            }
-          }
-        } catch (e) {
-          console.error('[WorkflowHub] Failed to parse todo file:', full, e);
-        }
-      }
+      this.readTodosFromDirRecursive(folder, todos, seenIds);
     } else {
       const prefix = `${folder}/`;
       for (const file of this.plugin.app.vault.getMarkdownFiles()) {
@@ -221,6 +215,28 @@ export class TodoService {
       }
     }
     return todos;
+  }
+
+  /** 递归扫描目录及其子文件夹中的待办文件（绝对路径模式） */
+  private readTodosFromDirRecursive(dir: string, todos: Todo[], seenIds: Set<string>): void {
+    for (const item of readdirSync(dir)) {
+      const full = join(dir, item);
+      try {
+        const stat = statSync(full);
+        if (stat.isDirectory()) {
+          this.readTodosFromDirRecursive(full, todos, seenIds);
+        } else if (stat.isFile() && item.endsWith('.md')) {
+          const content = readFileSync(full, 'utf-8');
+          const todo = this.parseTodoContent(content);
+          if (todo && !seenIds.has(todo.id)) {
+            seenIds.add(todo.id);
+            todos.push(todo);
+          }
+        }
+      } catch (e) {
+        console.error('[WorkflowHub] Failed to parse todo file:', full, e);
+      }
+    }
   }
 
   private parseTodoContent(content: string): Todo | null {
@@ -267,7 +283,7 @@ export class TodoService {
   private async writeTodoFile(todo: Todo): Promise<void> {
     const filePath = this.getTodoFilePath(todo);
     const content = this.serializeTodo(todo);
-    await this.ensureFolder();
+    await this.ensureFileFolder(filePath);
     if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
       writeFileSync(filePath, content, 'utf-8');
     } else {
@@ -280,7 +296,20 @@ export class TodoService {
     }
   }
 
-  private async deleteTodoFile(todo: Pick<Todo, 'id' | 'content'>): Promise<void> {
+  /** 确保文件所在目录存在（包括负责人子文件夹） */
+  private async ensureFileFolder(filePath: string): Promise<void> {
+    const dir = dirname(filePath);
+    if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
+      const { mkdirSync, existsSync } = await import('fs');
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    } else {
+      if (!this.plugin.app.vault.getAbstractFileByPath(dir)) {
+        await this.plugin.app.vault.createFolder(dir).catch(() => {});
+      }
+    }
+  }
+
+  private async deleteTodoFile(todo: Pick<Todo, 'id' | 'content' | 'responsiblePerson'>): Promise<void> {
     const filePath = this.getTodoFilePath(todo);
     if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
       if (existsSync(filePath)) unlinkSync(filePath);
@@ -309,6 +338,12 @@ export class TodoService {
       todos = todos.filter((t) => t.responsiblePerson === this.currentResponsiblePerson);
     }
     return todos;
+  }
+
+  /** 获取全部待办（绕过全局负责人筛选） */
+  async getAllTodosBypassFilter(): Promise<Todo[]> {
+    if (!this.loaded) await this.loadAllIndexes();
+    return [...this.byId.values()];
   }
 
   async getById(id: string): Promise<Todo | null> {
@@ -382,10 +417,16 @@ export class TodoService {
     /** 创建日期范围筛选（基于 createdAt 的日期部分） */
     createdDateFrom?: string;
     createdDateTo?: string;
+    /** 更新日期范围筛选（基于 updatedAt 的日期部分） */
+    updatedDateFrom?: string;
+    updatedDateTo?: string;
     /** 负责人筛选（undefined=使用当前全局筛选，空字符串=未分配） */
     responsiblePerson?: string | null;
   }): Promise<Todo[]> {
-    let todos = await this.getAllTodos();
+    // 当显式传入 responsiblePerson 时，绕过全局负责人筛选
+    let todos = filter.responsiblePerson !== undefined
+      ? await this.getAllTodosBypassFilter()
+      : await this.getAllTodos();
     if (filter.categoryId !== undefined) {
       todos = todos.filter((t) => (t.categoryId ?? null) === (filter.categoryId ?? null));
     }
@@ -404,6 +445,12 @@ export class TodoService {
     }
     if (filter.createdDateTo) {
       todos = todos.filter((t) => !!t.createdAt && t.createdAt.slice(0, 10) <= filter.createdDateTo!);
+    }
+    if (filter.updatedDateFrom) {
+      todos = todos.filter((t) => !!t.updatedAt && t.updatedAt.slice(0, 10) >= filter.updatedDateFrom!);
+    }
+    if (filter.updatedDateTo) {
+      todos = todos.filter((t) => !!t.updatedAt && t.updatedAt.slice(0, 10) <= filter.updatedDateTo!);
     }
     if (filter.keyword && filter.keyword.trim()) {
       const keyword = filter.keyword.trim().toLowerCase();
@@ -486,8 +533,10 @@ export class TodoService {
       }
     }
     await this.writeTodoFile(updated);
-    // content 变了文件名会变，删除旧文件
-    if (oldTodo.content !== updated.content) await this.deleteTodoFile(oldTodo);
+    // content 或负责人变了文件路径会变，删除旧文件
+    const oldPath = this.getTodoFilePath(oldTodo);
+    const newPath = this.getTodoFilePath(updated);
+    if (oldPath !== newPath) await this.deleteTodoFile(oldTodo);
     this.indexRemove(existing);
     this.indexAdd(updated);
     return updated;

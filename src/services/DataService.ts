@@ -41,7 +41,7 @@ interface CustomFile {
 export class DataService {
   app: ObsidianApp;
   plugin: AppVersionManagerPlugin;
-  private cache: DataCache;
+  public cache: DataCache;
   public readonly pathResolver: FilePathResolver;
 
   constructor(app: ObsidianApp, plugin: AppVersionManagerPlugin) {
@@ -602,9 +602,8 @@ export class DataService {
     try {
       const ctime = file.stat.ctime;
       const mtime = file.stat.mtime;
-      // Use vault.adapter.read to bypass Obsidian's cache (fixes plugin reload issue)
-      const filePath = file.path;
-      const content = await this.app.vault.adapter.read(filePath);
+      // Use readContent for absolute path files (CustomFile), vault.adapter.read otherwise
+      const content = 'readContent' in file ? await file.readContent() : await this.app.vault.adapter.read(file.path);
       const frontmatter = parseFrontmatter(content);
       if (!frontmatter) return null;
       return extractProjectFields(frontmatter, ctime, mtime, getFirstProgress(this.plugin.settings.progressStages));

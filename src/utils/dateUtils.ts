@@ -109,3 +109,33 @@ export function formatISOToDate(iso: string): string {
   if (isNaN(date.getTime())) return iso;
   return formatDate(date);
 }
+
+/**
+ * 将 "YYYY-MM-DD" 字符串安全地解析为本地零时的 Date。
+ *
+ * 避免 `new Date("YYYY-MM-DD")` 被解析为 UTC 零时后在负 UTC 时区被拨回一天的问题。
+ * 适用于所有纯日期字符串（如项目阶段时间、待办截止日期）。
+ */
+export function parseLocalDate(dateStr: string): Date {
+  const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    const [, y, m, d] = match;
+    return new Date(Number(y), Number(m) - 1, Number(d), 0, 0, 0, 0);
+  }
+  // 兜底：按原方式解析
+  const fallback = new Date(dateStr);
+  if (!isNaN(fallback.getTime())) {
+    fallback.setHours(0, 0, 0, 0);
+    return fallback;
+  }
+  return new Date(NaN);
+}
+
+/**
+ * 获取本地零时的 Date（今天）。
+ * 替代 `new Date(); d.setHours(0,0,0,0)` 模式。
+ */
+export function todayStart(): Date {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+}

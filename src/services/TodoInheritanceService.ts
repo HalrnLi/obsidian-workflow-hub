@@ -1,6 +1,6 @@
 import AppVersionManagerPlugin from '../main';
 import { Todo } from '../types';
-import { todayStr } from '../utils/dateUtils';
+import { todayStr, nowISO } from '../utils/dateUtils';
 
 /**
  * 待办智能继承服务。
@@ -60,7 +60,7 @@ export class TodoInheritanceService {
     }
   }
 
-  /** 执行智能继承：将历史未完成待办的 createdAt 更新为今天 */
+  /** 执行智能继承：将历史未完成待办的 updatedAt 更新为现在（不修改 createdAt） */
   async runInheritance(): Promise<number> {
     const today = todayStr();
     const lastRun = this.plugin.settings.inheritanceLastRun;
@@ -70,18 +70,20 @@ export class TodoInheritanceService {
       return 0;
     }
 
-    const todos = await this.plugin.todoService.getAllTodos();
+    // 继承是全局行为，需绕过全局负责人筛选
+    const todos = await this.plugin.todoService.getAllTodosBypassFilter();
     const pending = todos.filter((t) => t.status !== 'done' && t.createdAt.slice(0, 10) < today);
 
+    const now = nowISO();
     for (const todo of pending) {
-      await this.plugin.todoService.update(todo.id, { createdAt: today + 'T00:00:00.000Z' });
+      await this.plugin.todoService.update(todo.id, { updatedAt: now });
     }
 
     this.plugin.settings.inheritanceLastRun = today;
     await this.plugin.saveSettings();
 
     if (pending.length > 0) {
-      console.log(`[WorkflowHub] 智能继承: ${pending.length} 条待办已移动到今天`);
+      console.log(`[WorkflowHub] 智能继承: ${pending.length} 条待办已更新更新时间`);
     }
 
     return pending.length;

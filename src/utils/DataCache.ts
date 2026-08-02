@@ -7,9 +7,26 @@ export class DataCache {
   private maxEntries: number;
   private timestamps = new Map<string, number>();
 
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+
   constructor(ttlMs: number = 30000, maxEntries: number = 200) {
     this.ttl = ttlMs;
     this.maxEntries = maxEntries;
+    // 定期清理过期条目，防止长期不访问的过期条目占用内存
+    this.cleanupTimer = setInterval(() => this.cleanupExpired(), this.ttl);
+    // 防止定时器阻止进程退出
+    if (this.cleanupTimer && typeof this.cleanupTimer === 'object' && 'unref' in this.cleanupTimer) {
+      (this.cleanupTimer as any).unref();
+    }
+  }
+
+  /** 销毁缓存（清理定时器） */
+  destroy(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
+    this.invalidate();
   }
 
   /** 清理所有过期条目（不依赖 get 触发） */

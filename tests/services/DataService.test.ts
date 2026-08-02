@@ -130,6 +130,8 @@ function makeTFile(basename: string, content: string): TFile {
   file.basename = basename;
   file.extension = 'md';
   file.stat = { ctime: Date.parse('2026-01-01'), mtime: Date.parse('2026-01-15') };
+  // readContent is checked first in parseAppFile/parseProjectFile/parseVersionFile
+  (file as any).readContent = vi.fn(async () => content);
   return file;
 }
 
@@ -203,7 +205,7 @@ describe('DataService (vault path)', () => {
     });
 
     it('returns cached result on second call', async () => {
-      const appFile = makeTFile('MyApp__app-1', 'dummy');
+      const appFile = makeTFile('MyApp__app-1', '---\nid: app-1\nname: MyApp\ncreatedAt: "2026-01-01"\nupdatedAt: "2026-01-15"\nversion: 1\n---\n');
       const folder = new TFolder();
       folder.path = 'app-version-manager/apps';
       folder.children = [appFile];
@@ -218,8 +220,8 @@ describe('DataService (vault path)', () => {
 
       await service.getAllApps();
       await service.getAllApps();
-      // vaultRead should only be called once due to caching
-      expect(mocks.vaultRead).toHaveBeenCalledTimes(1);
+      // readContent should only be called once due to caching
+      expect((appFile as any).readContent).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -292,8 +294,8 @@ describe('DataService (vault path)', () => {
   // ----- deleteApp -----
   describe('deleteApp', () => {
     it('deletes app and cascades to versions', async () => {
-      const appFile = makeTFile('App__app-1', '');
-      const verFile = makeTFile('App_v1__ver-1', '');
+      const appFile = makeTFile('App__app-1', '---\nid: app-1\nname: App\nversion: 1\n---\n');
+      const verFile = makeTFile('App_v1__ver-1', '---\nid: ver-1\nappId: app-1\nversionNumber: v1\nversion: 1\n---\n');
 
       const appsFolder = new TFolder();
       appsFolder.path = 'app-version-manager/apps';
@@ -399,7 +401,7 @@ describe('DataService (vault path)', () => {
     });
 
     it('parses version files', async () => {
-      const verFile = makeTFile('App_v1__ver-1', '');
+      const verFile = makeTFile('App_v1__ver-1', '---\nid: ver-1\nappId: app-1\nversionNumber: 1.0.0\nbllVersion: 1.0\nippVersion: 2.0\nversion: 1\n---\n');
       const folder = new TFolder();
       folder.path = 'app-version-manager/versions';
       folder.children = [verFile];
@@ -422,7 +424,7 @@ describe('DataService (vault path)', () => {
   // ----- updateVersion -----
   describe('updateVersion', () => {
     it('updates version fields and increments version', async () => {
-      const verFile = makeTFile('App_v1__ver-1', '');
+      const verFile = makeTFile('App_v1__ver-1', '---\nid: ver-1\nappId: app-1\nversionNumber: 1.0.0\nversion: 1\n---\n');
       const folder = new TFolder();
       folder.path = 'app-version-manager/versions';
       folder.children = [verFile];
@@ -440,7 +442,7 @@ describe('DataService (vault path)', () => {
     });
 
     it('throws ConcurrencyConflictError on version mismatch', async () => {
-      const verFile = makeTFile('App_v1__ver-1', '');
+      const verFile = makeTFile('App_v1__ver-1', '---\nid: ver-1\nappId: app-1\nversionNumber: 1.0.0\nversion: 3\n---\n');
       const folder = new TFolder();
       folder.path = 'app-version-manager/versions';
       folder.children = [verFile];
@@ -458,7 +460,7 @@ describe('DataService (vault path)', () => {
   // ----- archiveVersion / unarchiveVersion -----
   describe('archiveVersion', () => {
     it('sets isArchived to true', async () => {
-      const verFile = makeTFile('App_v1__ver-1', '');
+      const verFile = makeTFile('App_v1__ver-1', '---\nid: ver-1\nappId: app-1\nversionNumber: 1.0.0\nisArchived: false\nversion: 1\n---\n');
       const folder = new TFolder();
       folder.path = 'app-version-manager/versions';
       folder.children = [verFile];
@@ -479,7 +481,7 @@ describe('DataService (vault path)', () => {
 
   describe('unarchiveVersion', () => {
     it('sets isArchived to false', async () => {
-      const verFile = makeTFile('App_v1__ver-1', '');
+      const verFile = makeTFile('App_v1__ver-1', '---\nid: ver-1\nappId: app-1\nversionNumber: 1.0.0\nisArchived: true\nversion: 1\n---\n');
       const folder = new TFolder();
       folder.path = 'app-version-manager/versions';
       folder.children = [verFile];
@@ -501,7 +503,7 @@ describe('DataService (vault path)', () => {
   // ----- deleteVersion -----
   describe('deleteVersion', () => {
     it('deletes version file and clears versionId from linked projects', async () => {
-      const verFile = makeTFile('App_v1__ver-1', '');
+      const verFile = makeTFile('App_v1__ver-1', '---\nid: ver-1\nappId: app-1\nversionNumber: 1.0.0\nversion: 1\n---\n');
       const projFile = makeTFile('Proj__proj-1', '---\nid: proj-1\nname: Proj\nversionId: ver-1\nversion: 1\n---\n');
 
       const versionsFolder = new TFolder();
@@ -524,13 +526,8 @@ describe('DataService (vault path)', () => {
         if (path === projFile.path || path === projFile.name) return projFile;
         return null;
       });
-      mocks.vaultRead.mockImplementation(async (file: TFile) => {
-        if (file.path?.includes('App_v1__ver-1'))
-          return '---\nid: ver-1\nappId: app-1\nversionNumber: 1.0.0\nversion: 1\n---\n';
-        if (file.path?.includes('Proj__proj-1'))
-          return '---\nid: proj-1\nname: Proj\nappVersionLinks:\n  - appId: app-1\n    versionId: ver-1\nversion: 1\n---\n';
-        return '---\nid: unknown\n---\n';
-      });
+      (verFile as any).readContent.mockImplementation(async () => '---\nid: ver-1\nappId: app-1\nversionNumber: 1.0.0\nversion: 1\n---\n');
+      (projFile as any).readContent.mockImplementation(async () => '---\nid: proj-1\nname: Proj\nappVersionLinks:\n  - appId: app-1\n    versionId: ver-1\nversion: 1\n---\n');
 
       const result = await service.deleteVersion('ver-1');
       expect(result).toBe(true);
@@ -666,7 +663,7 @@ version: 1
   describe('cache invalidation', () => {
     it('invalidates apps cache after createApp', async () => {
       // Seed vault with one app so getAllApps has something to read
-      const appFile = makeTFile('ExistingApp__app-x', '');
+      const appFile = makeTFile('ExistingApp__app-x', '---\nid: app-x\nname: ExistingApp\nversion: 1\n---\n');
       const folder = new TFolder();
       folder.path = 'app-version-manager/apps';
       folder.children = [appFile];
@@ -680,19 +677,20 @@ version: 1
       // First read populates cache
       const firstBatch = await service.getAllApps();
       expect(firstBatch).toHaveLength(1);
-      const readCountAfterFirstPopulate = mocks.vaultRead.mock.calls.length;
+      const readContentSpy = (appFile as any).readContent;
+      const readCountAfterFirstPopulate = readContentSpy.mock.calls.length;
 
       // createApp invalidates cache; its internal getAllApps should use cache
       await service.createApp('NewApp');
 
       // Read again — should miss cache and re-read from vault
       await service.getAllApps();
-      expect(mocks.vaultRead.mock.calls.length).toBeGreaterThan(readCountAfterFirstPopulate);
+      expect(readContentSpy.mock.calls.length).toBeGreaterThan(readCountAfterFirstPopulate);
     });
 
     it('invalidates projects cache after createProject', async () => {
       // Seed vault with one project so getAllProjects has something to read
-      const projFile = makeTFile('ExistingProj__proj-x', '');
+      const projFile = makeTFile('ExistingProj__proj-x', '---\nid: proj-x\nname: ExistingProj\nversion: 1\n---\n');
       const folder = new TFolder();
       folder.path = 'app-version-manager/projects';
       folder.children = [projFile];
@@ -760,13 +758,8 @@ version: 1
         if ([p1.path, p2.path].includes(path)) return [p1, p2].find((f) => f.path === path) || null;
         return null;
       });
-      mocks.vaultRead.mockImplementation(async (file: TFile) => {
-        if (file.path === p1.path)
-          return '---\nid: p1\nname: P1\nappVersionLinks:\n  - appId: app-1\n    versionId: ver-1\nprogress: 需求分解\nversion: 1\n---\n';
-        if (file.path === p2.path)
-          return '---\nid: p2\nname: P2\nversionId: ver-2\nprogress: 已提测\nversion: 1\n---\n';
-        return '---\nid: unknown\n---\n';
-      });
+      (p1 as any).readContent.mockImplementation(async () => '---\nid: p1\nname: P1\nappVersionLinks:\n  - appId: app-1\n    versionId: ver-1\nprogress: 需求分解\nversion: 1\n---\n');
+      (p2 as any).readContent.mockImplementation(async () => '---\nid: p2\nname: P2\nversionId: ver-2\nprogress: 已提测\nversion: 1\n---\n');
 
       const result = await service.getProjectsByVersionId('ver-1');
       expect(result).toHaveLength(1);
@@ -803,7 +796,7 @@ version: 1
   // ----- getVersionById / getAppById -----
   describe('getVersionById', () => {
     it('finds a version by id', async () => {
-      const verFile = makeTFile('App_v1__ver-1', '');
+      const verFile = makeTFile('App_v1__ver-1', '---\nid: ver-1\nappId: app-1\nversionNumber: 1.0.0\nversion: 1\n---\n');
       const folder = new TFolder();
       folder.path = 'app-version-manager/versions';
       folder.children = [verFile];

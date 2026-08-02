@@ -194,31 +194,31 @@ describe('isProjectInPreRelease', () => {
       progress: '已发布',
       b2SystemTestTime: '2026-01-01',
     });
-    expect(isProjectInPreRelease(project, 'B3', lastProgress)).toBe(false);
+    expect(isProjectInPreRelease(project, 'B3集成测试', lastProgress)).toBe(false);
   });
 
-  it('returns true when b2SystemTestTime is set (regardless of date)', () => {
+  it('returns true when b2SystemTestTime is in the past', () => {
     const project = createMockProject({
       progress: '需求分解',
       b2SystemTestTime: '2026-05-01', // past
     });
-    expect(isProjectInPreRelease(project, 'B3', lastProgress)).toBe(true);
+    expect(isProjectInPreRelease(project, 'B3集成测试', lastProgress)).toBe(true);
   });
 
-  it('returns true when b2SystemTestTime is in the future (still highlights)', () => {
+  it('returns false when b2SystemTestTime is in the future', () => {
     const project = createMockProject({
       progress: '需求分解',
       b2SystemTestTime: '2026-06-01', // future
     });
-    expect(isProjectInPreRelease(project, 'B3', lastProgress)).toBe(true);
+    expect(isProjectInPreRelease(project, 'B3集成测试', lastProgress)).toBe(false);
   });
 
-  it('returns true when any B2+ round field is set', () => {
+  it('returns false when only B2+ integration test is set but b2SystemTestTime is empty', () => {
     const project = createMockProject({
       progress: '需求分解',
       b3IntegrationTestTime: '2027-01-01', // far future
     });
-    expect(isProjectInPreRelease(project, 'B3', lastProgress)).toBe(true);
+    expect(isProjectInPreRelease(project, 'B3集成测试', lastProgress)).toBe(false);
   });
 
   it('returns false when no B2+ round field is set', () => {
@@ -226,7 +226,7 @@ describe('isProjectInPreRelease', () => {
       progress: '需求分解',
       b1SystemTestTime: '2026-01-01',
     });
-    expect(isProjectInPreRelease(project, 'B3', lastProgress)).toBe(false);
+    expect(isProjectInPreRelease(project, 'B3集成测试', lastProgress)).toBe(false);
   });
 
   it('returns false when only B1 fields are set (B1 pre-release round)', () => {
@@ -234,15 +234,24 @@ describe('isProjectInPreRelease', () => {
       progress: '需求分解',
       b1IntegrationTestTime: '2026-05-01',
     });
-    expect(isProjectInPreRelease(project, 'B1', lastProgress)).toBe(false);
+    expect(isProjectInPreRelease(project, 'B2系统测试', lastProgress)).toBe(false);
   });
 
-  it('returns true when b3SystemTestTime is set (B4 pre-release round)', () => {
+  it('returns true when b2SystemTestTime is past (even if only b3 is set)', () => {
     const project = createMockProject({
       progress: '需求分解',
-      b3SystemTestTime: '2026-04-01',
+      b2SystemTestTime: '2026-04-01',
+      b3SystemTestTime: '2026-05-01',
     });
-    expect(isProjectInPreRelease(project, 'B4', lastProgress)).toBe(true);
+    expect(isProjectInPreRelease(project, 'B4集成测试', lastProgress)).toBe(true);
+  });
+
+  it('returns true when trigger stage is empty but later stage is past', () => {
+    const project = createMockProject({
+      progress: '需求分解',
+      b3SystemTestTime: '2026-04-01', // trigger (b2SystemTestTime) empty, but later stage past
+    });
+    expect(isProjectInPreRelease(project, 'B3集成测试', lastProgress)).toBe(true);
   });
 });
 
@@ -263,15 +272,15 @@ describe('getCurrentBRound', () => {
 
   it('returns the next upcoming B round', () => {
     const project = createMockProject({ b1IntegrationTestTime: '2026-05-10' });
-    expect(getCurrentBRound(project)).toBe('B1');
+    expect(getCurrentBRound(project)).toBe('B1集成测试');
   });
 
-  it('returns B2 when B1 is past and B2 is upcoming', () => {
+  it('returns B1 when B1 is past and B2 is upcoming', () => {
     const project = createMockProject({
       b1IntegrationTestTime: '2026-05-01',
       b2IntegrationTestTime: '2026-06-01',
     });
-    expect(getCurrentBRound(project)).toBe('B2');
+    expect(getCurrentBRound(project)).toBe('B1集成测试');
   });
 
   it('returns the highest B round with a date when all dates are in the past', () => {
@@ -280,21 +289,25 @@ describe('getCurrentBRound', () => {
       b3SystemTestTime: '2026-02-01',
       b4SystemTestTime: '2026-03-01',
     });
-    expect(getCurrentBRound(project)).toBe('B4');
+    expect(getCurrentBRound(project)).toBe('B4系统测试');
   });
 
   it('returns the B round of the only (past) date set', () => {
     const project = createMockProject({ b2SystemTestTime: '2026-04-01' });
-    expect(getCurrentBRound(project)).toBe('B2');
+    expect(getCurrentBRound(project)).toBe('B2系统测试');
   });
 });
 
 describe('ROUND_COLORS', () => {
-  it('maps B1-B4 and 未安排 to colors', () => {
-    expect(ROUND_COLORS.B1).toMatch(/^#[0-9a-fA-F]{6}$/);
-    expect(ROUND_COLORS.B2).toMatch(/^#[0-9a-fA-F]{6}$/);
-    expect(ROUND_COLORS.B3).toMatch(/^#[0-9a-fA-F]{6}$/);
-    expect(ROUND_COLORS.B4).toMatch(/^#[0-9a-fA-F]{6}$/);
+  it('maps all stages and 未安排 to colors', () => {
+    expect(ROUND_COLORS['B1集成测试']).toMatch(/^#[0-9a-fA-F]{6}$/);
+    expect(ROUND_COLORS['B1系统测试']).toMatch(/^#[0-9a-fA-F]{6}$/);
+    expect(ROUND_COLORS['B2集成测试']).toMatch(/^#[0-9a-fA-F]{6}$/);
+    expect(ROUND_COLORS['B2系统测试']).toMatch(/^#[0-9a-fA-F]{6}$/);
+    expect(ROUND_COLORS['B3集成测试']).toMatch(/^#[0-9a-fA-F]{6}$/);
+    expect(ROUND_COLORS['B3系统测试']).toMatch(/^#[0-9a-fA-F]{6}$/);
+    expect(ROUND_COLORS['B4集成测试']).toMatch(/^#[0-9a-fA-F]{6}$/);
+    expect(ROUND_COLORS['B4系统测试']).toMatch(/^#[0-9a-fA-F]{6}$/);
     expect(ROUND_COLORS['未安排']).toMatch(/^#[0-9a-fA-F]{6}$/);
   });
 });

@@ -46,6 +46,7 @@ export class AppVersionManagerView extends ItemView {
     };
   importExportService: ImportExportService;
   private todoTabView: TodoTabView | null = null;
+  private refreshHandler: (() => void) | null = null;
   private detailProjectId: string | null = null;
   private detailTab: 'info' | 'todos' = 'info';
 
@@ -54,12 +55,15 @@ export class AppVersionManagerView extends ItemView {
   private mainEl: HTMLElement;
   private searchDebounceTimer: number | null = null;
   private autoRefreshTimer: number | null = null;
+  private isRefreshing = false;
 
   constructor(leaf: WorkspaceLeaf, plugin: AppVersionManagerPlugin) {
     super(leaf);
     this.plugin = plugin;
     this.importExportService = new ImportExportService(this.app, this.plugin);
     this.loadSavedFilters();
+    // 订阅刷新事件（提醒服务触发）
+    this.refreshHandler = this.plugin.registerRefreshHandler(() => this.refresh());
   }
 
   getViewType(): string {
@@ -150,8 +154,20 @@ export class AppVersionManagerView extends ItemView {
   }
 
   async refresh() {
-    await this.loadData();
-    this.render();
+    if (this.isRefreshing) return;
+    this.isRefreshing = true;
+    try {
+      await this.loadData();
+      // 首次渲染或强制重建
+      if (!this.headerEl || !this.mainEl) {
+        this.render();
+        return;
+      }
+      // 增量更新：只刷新数据，不清空 DOM
+      this.renderMainView();
+    } finally {
+      this.isRefreshing = false;
+    }
   }
 
   private render() {
@@ -452,7 +468,9 @@ export class AppVersionManagerView extends ItemView {
 
     // === 待办 Tab ===
     if (this.currentTab === 'todos') {
-      this.todoTabView = new TodoTabView(this.mainEl, this.plugin, () => this.refresh());
+      if (!this.todoTabView) {
+        this.todoTabView = new TodoTabView(this.mainEl, this.plugin, () => this.refresh());
+      }
       this.todoTabView.render();
       return;
     }
@@ -1134,6 +1152,10 @@ export class AppVersionManagerView extends ItemView {
     if (this.searchDebounceTimer) {
       clearTimeout(this.searchDebounceTimer);
       this.searchDebounceTimer = null;
+    }
+    if (this.refreshHandler) {
+      this.refreshHandler();
+      this.refreshHandler = null;
     }
     this.stopAutoRefresh();
     this.containerEl.empty();

@@ -31,6 +31,10 @@ vi.mock('path', () => {
       const base = p.split('/').pop() || '';
       return ext ? base.replace(new RegExp(ext.replace('.', '\\.') + '$'), '') : base;
     },
+    dirname: (p: string) => {
+      const i = p.lastIndexOf('/');
+      return i >= 0 ? p.slice(0, i) : '';
+    },
     extname: (p: string) => {
       const base = p.split('/').pop() || '';
       const i = base.lastIndexOf('.');

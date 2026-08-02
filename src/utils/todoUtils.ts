@@ -1,4 +1,5 @@
 import type { Todo } from '../types';
+import { parseLocalDate, todayStart } from './dateUtils';
 
 /**
  * 待办工具函数（从 todolist models.js 迁移并 TS 重写）。
@@ -44,10 +45,8 @@ export function removeTags(content: string): string {
 /** 判断待办是否紧急（截止日期临近且未完成） */
 export function isUrgentTask(todo: Todo, warningDays = 3): boolean {
   if (todo.status === 'done' || !todo.dueDate) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const due = new Date(todo.dueDate);
-  due.setHours(0, 0, 0, 0);
+  const today = todayStart();
+  const due = parseLocalDate(todo.dueDate);
   const diff = (due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
   return diff <= warningDays && diff >= 0;
 }
@@ -55,10 +54,8 @@ export function isUrgentTask(todo: Todo, warningDays = 3): boolean {
 /** 判断待办是否已过期（截止日期已过且未完成） */
 export function isOverdueTask(todo: Todo): boolean {
   if (todo.status === 'done' || !todo.dueDate) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const due = new Date(todo.dueDate);
-  due.setHours(0, 0, 0, 0);
+  const today = todayStart();
+  const due = parseLocalDate(todo.dueDate);
   return due < today;
 }
 

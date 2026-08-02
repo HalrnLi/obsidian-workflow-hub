@@ -11,7 +11,10 @@ export class App {
 }
 
 export class Vault {
-  adapter: any = {};
+  adapter: any = {
+    read: vi.fn(async () => ''),
+    readContent: vi.fn(async () => ''),
+  };
   getConfig = vi.fn();
   getAbstractFileByPath = vi.fn(() => null);
   read = vi.fn(async () => '');
@@ -39,6 +42,7 @@ export class TFile {
   basename = '';
   extension = 'md';
   stat = { ctime: 0, mtime: 0 };
+  readContent = vi.fn(async () => '');
 }
 
 export class TFolder {

@@ -124,6 +124,10 @@ export class ImportExportService {
 
   async importFromCSV(content: string): Promise<{ success: number; errors: string[] }> {
     const lines = content.split(/\r?\n/);
+    // 移除 UTF-8 BOM（\uFEFF）避免首列头匹配失败
+    if (lines[0] && lines[0].charCodeAt(0) === 0xFEFF) {
+      lines[0] = lines[0].slice(1);
+    }
     const headers = this.parseCSVLine(lines[0]);
 
     const result = { success: 0, errors: [] as string[] };
@@ -235,8 +239,8 @@ export class ImportExportService {
       const version = allVersions.find((v) => v.appId === app.id && v.versionNumber === versionNumber);
       if (!version) continue;
 
-      // 避免重复关联同一个 APP
-      if (!links.some((l) => l.appId === app.id)) {
+      // 避免重复关联同一个 APP+版本组合
+      if (!links.some((l) => l.appId === app.id && l.versionId === version.id)) {
         links.push({ appId: app.id, versionId: version.id });
       }
     }

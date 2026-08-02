@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, copyFileSync } from 'fs';
-import { join, isAbsolute } from 'path';
+import { join, isAbsolute, dirname } from 'path';
 import { normalizePath } from 'obsidian';
 import AppVersionManagerPlugin from '../main';
 import { Todo, TodoStatus, TodoPriority, ProjectInfoItem } from '../types';
@@ -145,7 +145,7 @@ export class MigrationService {
       // 备份 todolist tasks.json
       const todolistContent = await this.readTodolistTasks();
       if (todolistContent) {
-        await this.ensureVaultFolder(backupDir + '/todolist');
+        await this.ensureFolder(backupDir + '/todolist');
         await this.plugin.app.vault.create(`${backupDir}/todolist/tasks.json`, todolistContent);
         this.log('info', '已备份 todolist tasks.json');
       }
@@ -180,14 +180,14 @@ export class MigrationService {
         const content = readFileSync(fullPath, 'utf-8');
         const dstPath = `${dst}/${item}`;
         const dstDir = dstPath.substring(0, dstPath.lastIndexOf('/'));
-        if (dstDir) await this.ensureVaultFolder(dstDir);
+        if (dstDir) await this.ensureFolder(dstDir);
         await this.plugin.app.vault.create(dstPath, content).catch(() => {});
       }
     }
   }
 
   private async copyVaultFolder(src: string, dst: string): Promise<void> {
-    await this.ensureVaultFolder(dst);
+    await this.ensureFolder(dst);
     const files = this.plugin.app.vault.getFiles();
     const prefix = src.endsWith('/') ? src : src + '/';
     for (const file of files) {
@@ -196,15 +196,21 @@ export class MigrationService {
         const content = await this.plugin.app.vault.adapter.read(file.path);
         const dstPath = `${dst}/${rel}`;
         const dstDir = dstPath.substring(0, dstPath.lastIndexOf('/'));
-        if (dstDir) await this.ensureVaultFolder(dstDir);
+        if (dstDir) await this.ensureFolder(dstDir);
         await this.plugin.app.vault.create(dstPath, content).catch(() => {});
       }
     }
   }
 
-  private async ensureVaultFolder(path: string): Promise<void> {
-    if (!this.plugin.app.vault.getAbstractFileByPath(path)) {
-      await this.plugin.app.vault.createFolder(path).catch(() => {});
+  private async ensureFolder(path: string): Promise<void> {
+    if (this.isAbsolutePath(path)) {
+      if (!existsSync(path)) {
+        mkdirSync(path, { recursive: true });
+      }
+    } else {
+      if (!this.plugin.app.vault.getAbstractFileByPath(path)) {
+        await this.plugin.app.vault.createFolder(path).catch(() => {});
+      }
     }
   }
 
@@ -280,10 +286,18 @@ export class MigrationService {
           progress: h.progress,
           changedAt: toISO(h.changedAt),
         }));
+        // 保留旧数据中的 APP+版本关联（若存在）
+        let preservedLinks: Record<string, string>[] = [];
+        if (fm.appVersionLinks && Array.isArray(fm.appVersionLinks)) {
+          preservedLinks = fm.appVersionLinks.map((l: Record<string, string>) => ({
+            appId: String(l.appId ?? ''),
+            versionId: String(l.versionId ?? ''),
+          })).filter((l: Record<string, string>) => l.appId && l.versionId);
+        }
         const newFm: Record<string, unknown> = {
           id: String(fm.id),
           name: String(fm.name ?? ''),
-          appVersionLinks: [] as Record<string, string>[],
+          appVersionLinks: preservedLinks,
           manager: String(fm.manager ?? ''),
           responsiblePerson: String(fm.responsiblePerson ?? ''),
           projectLink: String(fm.projectLink ?? ''),
@@ -507,23 +521,34 @@ export class MigrationService {
   }
 
   private newFilePath(dataPath: string, subfolder: string, name: string, id: string): string {
-    return `${dataPath}/${subfolder}/${sanitizeFileName(name)}__${id}.md`;
+    const fileName = `${sanitizeFileName(name)}__${id}.md`;
+    // Use proper path joining for both relative and absolute paths
+    return this.isAbsolutePath(dataPath)
+      ? join(dataPath, subfolder, fileName)
+      : normalizePath(`${dataPath}/${subfolder}/${fileName}`);
   }
 
   private async writeNewFile(path: string, content: string): Promise<void> {
-    const dir = path.substring(0, path.lastIndexOf('/'));
-    await this.ensureVaultFolder(dir);
-    const existing = this.plugin.app.vault.getAbstractFileByPath(path);
-    if (existing) {
-      await this.plugin.app.vault.modify(existing as any, content);
+    const dir = dirname(path);
+    await this.ensureFolder(dir);
+    if (this.isAbsolutePath(path)) {
+      writeFileSync(path, content, 'utf-8');
     } else {
-      await this.plugin.app.vault.create(path, content);
+      const existing = this.plugin.app.vault.getAbstractFileByPath(path);
+      if (existing) {
+        await this.plugin.app.vault.modify(existing as any, content);
+      } else {
+        await this.plugin.app.vault.create(path, content);
+      }
     }
   }
 
   private async writeNewTodo(dataPath: string, todo: Todo): Promise<void> {
     const name = sanitizeFileName((todo.content || 'untitled').slice(0, 20));
-    const path = `${dataPath}/todos/${name}__${todo.id}.md`;
+    const fileName = `${name}__${todo.id}.md`;
+    const path = this.isAbsolutePath(dataPath)
+      ? join(dataPath, 'todos', fileName)
+      : normalizePath(`${dataPath}/todos/${fileName}`);
     const fm = createFrontmatter({
       id: todo.id,
       content: todo.content,
@@ -543,7 +568,9 @@ export class MigrationService {
 
   // ---------- 日志与自检 ----------
   private async writeMigrationLog(dataPath: string, timestamp: number): Promise<void> {
-    const logPath = `${dataPath}/_migration_${timestamp}.log`;
+    const logPath = this.isAbsolutePath(dataPath)
+      ? join(dataPath, `_migration_${timestamp}.log`)
+      : normalizePath(`${dataPath}/_migration_${timestamp}.log`);
     const logContent = this.logs.map((l) => `[${l.level.toUpperCase()}] ${l.message}`).join('\n');
     try {
       await this.writeNewFile(logPath, logContent);
@@ -564,8 +591,12 @@ export class MigrationService {
       'info',
       `自检: ${stats.avmApps} apps, ${stats.avmVersions} versions, ${stats.avmProjects} projects, ${totalTodos} todos`,
     );
-    // 基本自检：无严重错误即通过（更严格的数量对比可在实际数据上做）
+    // 基本自检：无严重错误即通过，但存在警告时记录提示（更严格的数量对比可在实际数据上做）
     const hasError = this.logs.some((l) => l.level === 'error');
+    const hasWarn = this.logs.some((l) => l.level === 'warn');
+    if (hasWarn) {
+      this.log('info', `自检注意: 迁移过程中存在 ${this.logs.filter((l) => l.level === 'warn').length} 条警告，请检查迁移日志`);
+    }
     return !hasError;
   }
 }

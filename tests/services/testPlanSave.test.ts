@@ -103,6 +103,7 @@ function makeProjectFile(id: string, name: string): TFile {
   file.basename = `${name}__${id}`;
   file.extension = 'md';
   file.stat = { ctime: Date.parse('2026-01-01'), mtime: Date.parse('2026-01-15') };
+  (file as any).readContent = vi.fn(async () => '');
   return file;
 }
 
@@ -160,7 +161,7 @@ version: 1
       if (path === projFile.path || path === projFile.name) return projFile;
       return null;
     });
-    mocks.vault.read.mockResolvedValue(originalYaml);
+    (projFile as any).readContent.mockResolvedValue(originalYaml);
 
     // 模拟提测计划弹窗提交的数据
     const testData = {
@@ -210,7 +211,7 @@ version: 1
       if (path === projFile.path || path === projFile.name) return projFile;
       return null;
     });
-    mocks.vault.read.mockResolvedValue(originalYaml);
+    (projFile as any).readContent.mockResolvedValue(originalYaml);
 
     const testData = {
       b1IntegrationTestTime: parseDateInput('1.2') || '',

@@ -129,6 +129,8 @@ export class BackupService {
     const beforeApps = await this.plugin.dataService.getAllApps();
     const beforeVersions = await this.plugin.dataService.getAllVersions();
     const beforeProjects = await this.plugin.dataService.getAllProjects();
+    const beforeTodos = await this.plugin.todoService.getAllTodos();
+    const beforeCategories = await this.plugin.categoryService.getAll();
 
     const rollback = async () => {
       for (const app of beforeApps) {
@@ -160,6 +162,26 @@ export class BackupService {
           await this.plugin.dataService.deleteApp(app.id);
         }
       }
+
+      // 回滚 todos 和 categories
+      for (const todo of beforeTodos) {
+        await this.plugin.todoService.upsertTodo(todo);
+      }
+      for (const category of beforeCategories) {
+        await this.plugin.categoryService.upsertCategory(category);
+      }
+      const todoIds = new Set(beforeTodos.map((t) => t.id));
+      const categoryIds = new Set(beforeCategories.map((c) => c.id));
+      for (const todo of await this.plugin.todoService.getAllTodos()) {
+        if (!todoIds.has(todo.id)) {
+          await this.plugin.todoService.delete(todo.id);
+        }
+      }
+      for (const category of await this.plugin.categoryService.getAll()) {
+        if (!categoryIds.has(category.id)) {
+          await this.plugin.categoryService.delete(category.id);
+        }
+      }
     };
 
     try {
@@ -183,6 +205,9 @@ export class BackupService {
     const beforeApps = rollback ? [] : await this.plugin.dataService.getAllApps();
     const beforeVersions = rollback ? [] : await this.plugin.dataService.getAllVersions();
     const beforeProjects = rollback ? [] : await this.plugin.dataService.getAllProjects();
+
+    const beforeTodos = rollback ? [] : await this.plugin.todoService.getAllTodos();
+    const beforeCategories = rollback ? [] : await this.plugin.categoryService.getAll();
 
     const doRollback =
       rollback ||
@@ -214,6 +239,26 @@ export class BackupService {
         for (const app of await this.plugin.dataService.getAllApps()) {
           if (!appIds.has(app.id)) {
             await this.plugin.dataService.deleteApp(app.id);
+          }
+        }
+
+        // 回滚 todos 和 categories
+        for (const todo of beforeTodos) {
+          await this.plugin.todoService.upsertTodo(todo);
+        }
+        for (const category of beforeCategories) {
+          await this.plugin.categoryService.upsertCategory(category);
+        }
+        const todoIds = new Set(beforeTodos.map((t) => t.id));
+        const categoryIds = new Set(beforeCategories.map((c) => c.id));
+        for (const todo of await this.plugin.todoService.getAllTodos()) {
+          if (!todoIds.has(todo.id)) {
+            await this.plugin.todoService.delete(todo.id);
+          }
+        }
+        for (const category of await this.plugin.categoryService.getAll()) {
+          if (!categoryIds.has(category.id)) {
+            await this.plugin.categoryService.delete(category.id);
           }
         }
       });
