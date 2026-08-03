@@ -30,7 +30,7 @@ export class CreateTodoModal extends Modal {
     plugin: AppVersionManagerPlugin,
     onSubmit: (data: CreateTodoData) => void,
     existing: Todo | null = null,
-    options?: { lockProject?: boolean; defaultProjectId?: string | null },
+    options?: { lockProject?: boolean; defaultProjectId?: string | null; defaultResponsiblePerson?: string },
   ) {
     super(app);
     this.plugin = plugin;
@@ -46,7 +46,9 @@ export class CreateTodoModal extends Modal {
       status: existing?.status ?? 'todo',
       categoryId: existing?.categoryId ?? plugin.dataConfigService.config.defaultCategoryId ?? null,
       projectId: existing?.projectId ?? this.defaultProjectId ?? null,
-      responsiblePerson: existing?.responsiblePerson ?? plugin.todoService.getCurrentResponsiblePerson() ?? '',
+      // 优先级：已有负责人（编辑）> 项目负责人（项目内新增）> 当前选中的负责人 > 空
+      responsiblePerson:
+        existing?.responsiblePerson ?? options?.defaultResponsiblePerson ?? plugin.todoService.getCurrentResponsiblePerson() ?? '',
     };
   }
 
@@ -68,11 +70,18 @@ export class CreateTodoModal extends Modal {
         .onChange((v) => (this.data.content = v)),
     );
 
-    // 负责人（只读显示，由顶部选择器决定）
-    if (this.data.responsiblePerson) {
-      const personSetting = new Setting(contentEl).setName('负责人');
-      personSetting.descEl.setText(this.data.responsiblePerson);
+    // 负责人（可从配置的负责人列表中选择，编辑时可修改）
+    const personOptions = [...this.plugin.dataConfigService.config.responsiblePersons];
+    // 当前值不在列表时也保留（如旧数据或刚删除的负责人）
+    if (this.data.responsiblePerson && !personOptions.includes(this.data.responsiblePerson)) {
+      personOptions.push(this.data.responsiblePerson);
     }
+    new Setting(contentEl).setName('负责人').addDropdown((dd) => {
+      dd.addOption('', '未分配');
+      personOptions.forEach((p) => dd.addOption(p, p));
+      dd.setValue(this.data.responsiblePerson);
+      dd.onChange((v) => (this.data.responsiblePerson = v));
+    });
 
     new Setting(contentEl).setName('链接').addText((text) =>
       text

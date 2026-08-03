@@ -23,7 +23,7 @@ vi.mock('path', () => {
 });
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from '../../src/utils/fsUtils';
-import { App, Vault, TFile } from 'obsidian';
+import { App, Vault } from 'obsidian';
 import { DataConfigService } from '../../src/services/DataConfigService';
 
 function createMockPlugin(overrides: Record<string, unknown> = {}) {
@@ -106,8 +106,8 @@ describe('DataConfigService', () => {
     expect(svc.config.defaultCategoryId).toBe('cat-1');
     expect(svc.config.defaultAppId).toBe('app-1');
 
-    // 配置已写入 {dataPath}/.workflow-hub-config.json
-    expect(vault.create).toHaveBeenCalledWith(
+    // 配置已写入 {dataPath}/.workflow-hub-config.json（dotfile 走 adapter 直接写磁盘）
+    expect(vault.adapter.write).toHaveBeenCalledWith(
       'workflow-hub/.workflow-hub-config.json',
       expect.stringContaining('自定义阶段'),
     );
@@ -122,12 +122,11 @@ describe('DataConfigService', () => {
   });
 
   it('配置文件已存在时不执行旧版迁移', async () => {
-    const file = new TFile();
-    file.path = 'workflow-hub/.workflow-hub-config.json';
     const { plugin, vault } = createMockPlugin({
       loadData: vi.fn(async () => ({ progressStages: [{ name: '旧阶段', color: '#000000' }] })),
     });
-    vault.getAbstractFileByPath.mockImplementation((p: string) => (p === file.path ? file : null));
+    // dotfile 不走 vault 索引，用 adapter 判断存在并读取
+    vault.adapter.exists.mockResolvedValue(true);
     vault.adapter.read.mockResolvedValue(
       JSON.stringify({ preReleaseRound: 'B4系统测试', progressStages: [{ name: '新阶段', color: '#00ff00' }] }),
     );
@@ -141,7 +140,7 @@ describe('DataConfigService', () => {
     expect(plugin.saveData).not.toHaveBeenCalled();
   });
 
-  it('save() 将配置写入数据目录', async () => {
+  it('save() 将配置写入数据目录（dotfile 走 adapter.write）', async () => {
     const { plugin, vault } = createMockPlugin();
     const svc = new DataConfigService(plugin as any);
     await svc.load();
@@ -149,10 +148,37 @@ describe('DataConfigService', () => {
     svc.config.preReleaseRound = 'B4系统测试';
     await svc.save();
 
-    expect(vault.create).toHaveBeenCalledWith(
+    expect(vault.adapter.write).toHaveBeenCalledWith(
       'workflow-hub/.workflow-hub-config.json',
       expect.stringContaining('B4系统测试'),
     );
+    // 不得走 vault.create —— 对已存在的 dotfile 会抛 "File already exists"
+    expect(vault.create).not.toHaveBeenCalled();
+  });
+
+  it('vault 模式 dotfile 回归：getAbstractFileByPath 返回 null（Obsidian 不索引隐藏文件）也能加载与保存', async () => {
+    // 模拟真实 Obsidian 行为：dotfile 不在 vault 索引中，getAbstractFileByPath 永远返回 null，
+    // 但文件确实存在于磁盘（adapter.exists 为 true）。这是负责人管理"点击无反应"的根因场景。
+    const { plugin, vault } = createMockPlugin();
+    vault.adapter.exists.mockResolvedValue(true);
+    vault.adapter.read.mockResolvedValue(
+      JSON.stringify({ preReleaseRound: 'B4系统测试', responsiblePersons: ['李凌涛'] }),
+    );
+
+    const svc = new DataConfigService(plugin as any);
+    await svc.load();
+    expect(svc.config.responsiblePersons).toEqual(['李凌涛']);
+    expect(svc.config.preReleaseRound).toBe('B4系统测试');
+
+    // 修改负责人并保存 → 必须落盘成功，且不经过 vault.create/modify
+    svc.config.responsiblePersons = ['李凌涛', '张三'];
+    await svc.save();
+    expect(vault.adapter.write).toHaveBeenCalledWith(
+      'workflow-hub/.workflow-hub-config.json',
+      expect.stringContaining('张三'),
+    );
+    expect(vault.create).not.toHaveBeenCalled();
+    expect(vault.modify).not.toHaveBeenCalled();
   });
 
   // ---------- 绝对路径模式（走 fs 模块，历史 bug 重灾区，此前零覆盖） ----------

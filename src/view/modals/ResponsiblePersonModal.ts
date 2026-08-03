@@ -24,10 +24,28 @@ export class ResponsiblePersonModal extends Modal {
     return this.plugin.dataConfigService.config.responsiblePersons ?? [];
   }
 
+  /**
+   * 保存负责人列表。任何一步失败都会：回滚内存配置、弹出错误提示、刷新列表，
+   * 避免"点击无反应"式的静默失败（保存/刷新链路抛错时列表不更新）。
+   */
   private async savePersons(persons: string[]) {
-    this.plugin.dataConfigService.config.responsiblePersons = persons;
-    await this.plugin.dataConfigService.save();
-    this.onChange?.();
+    const prev = [...this.plugin.dataConfigService.config.responsiblePersons];
+    try {
+      this.plugin.dataConfigService.config.responsiblePersons = persons;
+      await this.plugin.dataConfigService.save();
+    } catch (e) {
+      this.plugin.dataConfigService.config.responsiblePersons = prev;
+      new Notice(`负责人保存失败：${e instanceof Error ? e.message : String(e)}`);
+      this.renderList();
+      return;
+    }
+    this.renderList();
+    // 视图刷新失败不影响弹窗自身状态，仅记录日志
+    try {
+      this.onChange?.();
+    } catch (e) {
+      console.error('[WorkflowHub] 负责人变更后刷新视图失败:', e);
+    }
   }
 
   private renderList() {
@@ -62,7 +80,6 @@ export class ResponsiblePersonModal extends Modal {
               const list = [...persons];
               [list[index - 1], list[index]] = [list[index], list[index - 1]];
               await this.savePersons(list);
-              this.renderList();
             }
           }),
       );
@@ -77,7 +94,6 @@ export class ResponsiblePersonModal extends Modal {
               const list = [...persons];
               [list[index], list[index + 1]] = [list[index + 1], list[index]];
               await this.savePersons(list);
-              this.renderList();
             }
           }),
       );
@@ -100,7 +116,6 @@ export class ResponsiblePersonModal extends Modal {
             const list = [...persons];
             list[index] = trimmed;
             await this.savePersons(list);
-            this.renderList();
           }),
       );
 
@@ -112,7 +127,6 @@ export class ResponsiblePersonModal extends Modal {
           .onClick(async () => {
             const list = persons.filter((_, i) => i !== index);
             await this.savePersons(list);
-            this.renderList();
           }),
       );
     });
@@ -138,7 +152,6 @@ export class ResponsiblePersonModal extends Modal {
             return;
           }
           await this.savePersons([...persons, name]);
-          this.renderList();
         }),
     );
   }

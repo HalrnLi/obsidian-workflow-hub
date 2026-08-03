@@ -1,5 +1,5 @@
 import { join } from 'path';
-import { normalizePath, TFile } from 'obsidian';
+import { normalizePath } from 'obsidian';
 import AppVersionManagerPlugin from '../main';
 import { DataConfig, DEFAULT_DATA_CONFIG, ProgressStage, DefaultTodoTemplate } from '../types';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from '../utils/fsUtils';
@@ -78,9 +78,12 @@ export class DataConfigService {
 
   private async loadFromVault(configPath: string): Promise<boolean> {
     try {
-      const file = this.plugin.app.vault.getAbstractFileByPath(configPath);
-      if (file instanceof TFile) {
-        const content = await this.plugin.app.vault.adapter.read(file.path);
+      // 配置文件是 dotfile（.workflow-hub-config.json），Obsidian 的 vault 索引
+      // 不保证包含隐藏文件（getAbstractFileByPath 可能返回 null），必须用 adapter
+      // 直接读写磁盘，否则加载会静默失败回退到默认配置
+      const adapter = this.plugin.app.vault.adapter;
+      if (await adapter.exists(configPath)) {
+        const content = await adapter.read(configPath);
         const parsed = JSON.parse(content);
         this.config = this.mergeConfig(parsed);
         return true;
@@ -208,18 +211,15 @@ export class DataConfigService {
   }
 
   private async saveToVault(configPath: string, json: string): Promise<void> {
+    // 配置文件是 dotfile：getAbstractFileByPath 可能返回 null（Obsidian 不索引隐藏文件），
+    // vault.create 对已存在文件会抛 "File already exists" —— 必须用 adapter 直接写磁盘
+    const adapter = this.plugin.app.vault.adapter;
     // 确保父目录存在
     const parentPath = normalizePath(configPath.split('/').slice(0, -1).join('/'));
-    if (parentPath && !this.plugin.app.vault.getAbstractFileByPath(parentPath)) {
+    if (parentPath && !(await adapter.exists(parentPath))) {
       await this.plugin.app.vault.createFolder(parentPath).catch(() => {});
     }
-
-    const file = this.plugin.app.vault.getAbstractFileByPath(configPath);
-    if (file instanceof TFile) {
-      await this.plugin.app.vault.modify(file, json);
-    } else {
-      await this.plugin.app.vault.create(configPath, json);
-    }
+    await adapter.write(configPath, json);
   }
 
   /** 切换数据路径时重置加载状态 */

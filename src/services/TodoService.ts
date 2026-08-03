@@ -520,9 +520,29 @@ export class TodoService {
   }
 
   // ---------- CRUD ----------
+  /**
+   * 项目待办的默认负责人：项目有负责人时返回项目负责人，否则返回 null（继续回退）。
+   * 注意用 null 而不是空字符串 —— 空字符串会被 `??` 当成有效值直接采用。
+   */
+  private async resolveProjectResponsiblePerson(projectId: string | null | undefined): Promise<string | null> {
+    if (!projectId) return null;
+    try {
+      const project = await this.plugin.dataService.getProjectById(projectId);
+      return project?.responsiblePerson || null;
+    } catch {
+      return null;
+    }
+  }
+
   async create(input: CreateTodoInput): Promise<Todo> {
     await this.ensureFolder();
     const now = nowISO();
+    // 负责人优先级：显式传入 > 项目负责人（项目待办）> 当前选中的负责人 > 空
+    const responsiblePerson =
+      input.responsiblePerson ??
+      (await this.resolveProjectResponsiblePerson(input.projectId)) ??
+      this.currentResponsiblePerson ??
+      '';
     const todo: Todo = {
       id: generateId(),
       content: input.content,
@@ -533,7 +553,7 @@ export class TodoService {
       pinned: input.pinned ?? false,
       categoryId: input.categoryId ?? null,
       projectId: input.projectId ?? null,
-      responsiblePerson: input.responsiblePerson ?? this.currentResponsiblePerson ?? '',
+      responsiblePerson,
       completedAt: input.status === 'done' ? now : '',
       createdAt: now,
       updatedAt: now,

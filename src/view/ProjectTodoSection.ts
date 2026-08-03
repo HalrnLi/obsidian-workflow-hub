@@ -1,6 +1,6 @@
 import { ButtonComponent, Notice, Menu } from 'obsidian';
 import AppVersionManagerPlugin from '../main';
-import { Todo, TodoStatus } from '../types';
+import { Todo, TodoStatus, Project } from '../types';
 import { sortTodos } from '../utils/todoSorting';
 import { getPriorityConfig, isOverdueTask, isUrgentTask } from '../utils/todoUtils';
 import { CreateTodoModal, CreateTodoData } from './modals/CreateTodoModal';
@@ -12,7 +12,7 @@ export class ProjectTodoSection {
   constructor(
     private containerEl: HTMLElement,
     private plugin: AppVersionManagerPlugin,
-    private project: { id: string; name: string },
+    private project: Pick<Project, 'id' | 'name' | 'responsiblePerson'>,
     private onChange?: () => void,
   ) {}
 
@@ -154,7 +154,12 @@ export class ProjectTodoSection {
         }
       },
       null,
-      { lockProject: true, defaultProjectId: this.project.id },
+      {
+        lockProject: true,
+        defaultProjectId: this.project.id,
+        // 项目无负责人时传 undefined，让弹窗回退到当前选中的负责人
+        defaultResponsiblePerson: this.project.responsiblePerson || undefined,
+      },
     ).open();
   }
 

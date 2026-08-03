@@ -14,6 +14,9 @@ export class Vault {
   adapter: any = {
     read: vi.fn(async () => ''),
     readContent: vi.fn(async () => ''),
+    exists: vi.fn(async () => false),
+    write: vi.fn(async () => {}),
+    mkdir: vi.fn(async () => {}),
   };
   getConfig = vi.fn();
   getAbstractFileByPath = vi.fn(() => null);
@@ -124,27 +127,43 @@ export class WorkspaceLeaf {
 export class Setting {
   containerEl: HTMLElement;
   settingEl: HTMLElement;
+  nameEl: HTMLElement;
+  descEl: HTMLElement;
 
   constructor(containerEl: HTMLElement) {
     this.containerEl = containerEl;
+    // 与真实 Obsidian 一致：构建 DOM 树，测试可查询/点击
     this.settingEl = document.createElement('div');
+    this.settingEl.addClass('setting-item');
+    this.nameEl = document.createElement('div');
+    this.descEl = document.createElement('div');
+    this.settingEl.appendChild(this.nameEl);
+    this.settingEl.appendChild(this.descEl);
+    containerEl.appendChild(this.settingEl);
   }
 
-  setName(_name: string) {
+  setName(name: string) {
+    this.nameEl.setText(name);
     return this;
   }
-  setDesc(_desc: string) {
+  setDesc(desc: string) {
+    this.descEl.setText(desc);
     return this;
   }
-  setClass(_cls: string) {
+  setClass(cls: string) {
+    this.settingEl.addClass(cls);
     return this;
   }
   addText(cb: (text: any) => void) {
-    cb(new TextComponent());
+    const c = new TextComponent();
+    this.settingEl.appendChild(c.inputEl);
+    cb(c);
     return this;
   }
   addDropdown(cb: (dropdown: any) => void) {
-    cb(new DropdownComponent());
+    const c = new DropdownComponent();
+    this.settingEl.appendChild(c.selectEl);
+    cb(c);
     return this;
   }
   addSlider(cb: (slider: any) => void) {
@@ -156,7 +175,9 @@ export class Setting {
     return this;
   }
   addButton(cb: (btn: any) => void) {
-    cb(new ButtonComponent());
+    const c = new ButtonComponent();
+    this.settingEl.appendChild(c.buttonEl);
+    cb(c);
     return this;
   }
   addColorPicker(cb: (picker: any) => void) {
@@ -164,23 +185,32 @@ export class Setting {
     return this;
   }
   addTextArea(cb: (textarea: any) => void) {
-    cb(new TextAreaComponent());
+    const c = new TextAreaComponent();
+    this.settingEl.appendChild(c.inputEl);
+    cb(c);
     return this;
   }
   addExtraButton(cb: (btn: any) => void) {
-    cb(new ExtraButtonComponent());
+    const c = new ExtraButtonComponent();
+    this.settingEl.appendChild(c.buttonEl);
+    cb(c);
     return this;
   }
 }
 
 export class TextComponent {
-  setValue = vi.fn(function (this: any) {
+  setValue = vi.fn(function (this: any, v: string) {
+    this._value = v;
+    this.inputEl.value = v;
     return this;
   });
   setPlaceholder = vi.fn(function (this: any) {
     return this;
   });
-  onChange = vi.fn(function (this: any) {
+  onChange = vi.fn(function (this: any, cb: (v: string) => void) {
+    this._onChange = cb;
+    // 与真实 Obsidian 一致：onChange 监听 input 事件并读取当前值
+    this.inputEl.addEventListener('input', () => cb(this.inputEl.value));
     return this;
   });
   inputEl = document.createElement('input');
@@ -245,10 +275,16 @@ export class ButtonComponent {
   setCta = vi.fn(function (this: any) {
     return this;
   });
-  onClick = vi.fn(function (this: any) {
+  onClick = vi.fn(function (this: any, cb: () => void) {
+    // 与真实 Obsidian 一致：点击回调挂到按钮元素上，测试可用 click() 触发
+    this.buttonEl.addEventListener('click', cb);
     return this;
   });
   buttonEl = document.createElement('button');
+  // 与真实 Obsidian 一致：构造时把按钮挂到容器 DOM 上
+  constructor(containerEl?: HTMLElement) {
+    if (containerEl) containerEl.appendChild(this.buttonEl);
+  }
 }
 
 export class ColorPickerComponent {
@@ -280,9 +316,12 @@ export class ExtraButtonComponent {
   setTooltip = vi.fn(function (this: any) {
     return this;
   });
-  onClick = vi.fn(function (this: any) {
+  onClick = vi.fn(function (this: any, cb: () => void) {
+    // 与真实 Obsidian 一致：点击回调挂到按钮元素上，测试可用 click() 触发
+    this.buttonEl.addEventListener('click', cb);
     return this;
   });
+  buttonEl = document.createElement('button');
 }
 
 export class Menu {
@@ -318,8 +357,13 @@ export class Modal {
     this.contentEl = document.createElement('div');
   }
 
-  open = vi.fn();
-  close = vi.fn();
+  open = vi.fn(function (this: Modal) {
+    // 与真实 Obsidian 一致：open 时调用 onOpen 渲染内容
+    this.onOpen();
+  });
+  close = vi.fn(function (this: Modal) {
+    this.onClose();
+  });
   onOpen() {}
   onClose() {}
 }

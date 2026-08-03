@@ -77,6 +77,7 @@ function createMockPlugin() {
         isAbsolutePath: () => false,
         joinPath: (...parts: string[]) => parts.join('/'),
       },
+      getProjectById: vi.fn(async () => null),
     },
     categoryService: { getAll: vi.fn(async () => []) },
     todoService: null as TodoService | null,
@@ -135,6 +136,41 @@ describe('TodoService 负责人筛选', () => {
     service.setCurrentResponsiblePerson('张三');
     const todo = await service.create({ content: '测试待办', responsiblePerson: '李四' });
     expect(todo.responsiblePerson).toBe('李四');
+  });
+
+  it('项目有负责人时，项目待办默认负责人与项目负责人一致', async () => {
+    (plugin.dataService.getProjectById as any).mockResolvedValue({ id: 'p1', responsiblePerson: '张三' });
+    const todo = await service.create({ content: '项目待办', projectId: 'p1' });
+    expect(todo.responsiblePerson).toBe('张三');
+  });
+
+  it('项目无负责人时，回退到当前选中的负责人', async () => {
+    (plugin.dataService.getProjectById as any).mockResolvedValue({ id: 'p1', responsiblePerson: '' });
+    service.setCurrentResponsiblePerson('李四');
+    const todo = await service.create({ content: '项目待办', projectId: 'p1' });
+    expect(todo.responsiblePerson).toBe('李四');
+  });
+
+  it('项目不存在时，回退到当前选中的负责人', async () => {
+    (plugin.dataService.getProjectById as any).mockResolvedValue(null);
+    service.setCurrentResponsiblePerson('李四');
+    const todo = await service.create({ content: '项目待办', projectId: 'p1' });
+    expect(todo.responsiblePerson).toBe('李四');
+  });
+
+  it('显式传入负责人优先于项目负责人', async () => {
+    (plugin.dataService.getProjectById as any).mockResolvedValue({ id: 'p1', responsiblePerson: '张三' });
+    const todo = await service.create({ content: '项目待办', projectId: 'p1', responsiblePerson: '王五' });
+    expect(todo.responsiblePerson).toBe('王五');
+  });
+
+  it('编辑待办可以修改负责人', async () => {
+    const todo = await service.create({ content: '改负责人', responsiblePerson: '张三' });
+    // 模拟索引已加载，直接基于内存索引更新
+    service['loaded'] = true;
+    const updated = await service.update(todo.id, { responsiblePerson: '李四' });
+    expect(updated.responsiblePerson).toBe('李四');
+    expect(updated.version).toBe(todo.version + 1);
   });
 
   it('getResponsiblePersons 返回所有有待办的负责人', () => {

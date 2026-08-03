@@ -98,6 +98,14 @@ describe('TodoService 绝对路径模式（真实文件系统）', () => {
     expect(fs.existsSync(filePath)).toBe(true);
   });
 
+  it('项目有负责人时，项目待办默认负责人与项目一致并写入对应子目录', async () => {
+    (plugin.dataService.getProjectById as any).mockResolvedValue({ id: 'p1', responsiblePerson: '张三' });
+    const todo = await service.create({ content: '项目需求', projectId: 'p1' });
+    expect(todo.responsiblePerson).toBe('张三');
+    const filePath = path.join(tmpDir, 'todos', '张三', `${todo.content}__${todo.id}.md`);
+    expect(fs.existsSync(filePath)).toBe(true);
+  });
+
   it('更新待办：新内容落盘、旧文件删除、version 递增', async () => {
     const todo = await service.create({ content: '待更新' });
     const updated = await service.update(todo.id, { content: '已更新' });
