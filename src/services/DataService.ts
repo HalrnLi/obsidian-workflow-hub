@@ -1,6 +1,5 @@
 import { App as ObsidianApp, TFile, TFolder, normalizePath } from 'obsidian';
-import { existsSync, mkdirSync, readdirSync, statSync, readFileSync, unlinkSync } from 'fs';
-import { promises as fsPromises } from 'fs';
+import { existsSync, mkdirSync, readdirSync, statSync, readFileAsync, writeFileAsync, renameAsync, unlinkAsync } from '../utils/fsUtils';
 import { join, basename, extname } from 'path';
 import AppVersionManagerPlugin from '../main';
 import {
@@ -81,7 +80,7 @@ export class DataService {
 
   private async writeFile(filePath: string, content: string) {
     if (this.pathResolver.isAbsolutePath()) {
-      await fsPromises.writeFile(filePath, content, 'utf-8');
+      await writeFileAsync(filePath, content, 'utf-8');
     } else {
       await this.app.vault.create(filePath, content);
     }
@@ -89,7 +88,7 @@ export class DataService {
 
   private async modifyFile(file: TFile | CustomFile, content: string) {
     if ('path' in file && this.pathResolver.isAbsolutePath()) {
-      await fsPromises.writeFile(file.path, content, 'utf-8');
+      await writeFileAsync(file.path, content, 'utf-8');
     } else if (file instanceof TFile) {
       await this.app.vault.modify(file, content);
     }
@@ -97,7 +96,7 @@ export class DataService {
 
   private async renameFile(file: TFile | CustomFile, newPath: string) {
     if ('path' in file && this.pathResolver.isAbsolutePath()) {
-      await fsPromises.rename(file.path, newPath);
+      await renameAsync(file.path, newPath);
     } else if (file instanceof TFile) {
       await this.app.vault.rename(file, normalizePath(newPath));
     }
@@ -105,7 +104,7 @@ export class DataService {
 
   private async deleteFile(file: TFile | CustomFile) {
     if ('path' in file && this.pathResolver.isAbsolutePath()) {
-      await fsPromises.unlink(file.path);
+      await unlinkAsync(file.path);
     } else if (file instanceof TFile) {
       await this.app.vault.delete(file);
     }
@@ -171,7 +170,7 @@ export class DataService {
                 ctime: stat.ctime.getTime(),
                 mtime: stat.mtime.getTime(),
               },
-              readContent: () => fsPromises.readFile(fullPath, 'utf-8'),
+              readContent: () => readFileAsync(fullPath, 'utf-8'),
             });
           }
         }

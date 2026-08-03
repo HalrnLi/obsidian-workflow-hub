@@ -1,4 +1,3 @@
-import { existsSync, readFileSync, writeFileSync, unlinkSync, readdirSync, statSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { normalizePath, TFile } from 'obsidian';
 import AppVersionManagerPlugin from '../main';
@@ -7,6 +6,7 @@ import { parseFrontmatter, createFrontmatter, parseNumericField } from '../utils
 import { generateId, sanitizeFileName } from '../utils/idUtils';
 import { nowISO, todayStr } from '../utils/dateUtils';
 
+import { existsSync, readFileSync, writeFileSync, unlinkSync, readdirSync, statSync, mkdirSync } from '../utils/fsUtils';
 /** null 键的占位符（Map 不方便直接用 null 作 key） */
 const NULL_KEY = '__null__';
 
@@ -330,7 +330,7 @@ export class TodoService {
   private async ensureFileFolder(filePath: string): Promise<void> {
     const dir = filePath.substring(0, Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\')));
     if (this.plugin.dataService.pathResolver.isAbsolutePath()) {
-      const { mkdirSync, existsSync } = await import('fs');
+      
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     } else {
       if (!this.plugin.app.vault.getAbstractFileByPath(dir)) {

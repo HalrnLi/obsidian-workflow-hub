@@ -1,8 +1,8 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { normalizePath, TFile } from 'obsidian';
 import AppVersionManagerPlugin from '../main';
 import { DataConfig, DEFAULT_DATA_CONFIG, ProgressStage, DefaultTodoTemplate } from '../types';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from '../utils/fsUtils';
 
 /**
  * 数据目录配置服务。

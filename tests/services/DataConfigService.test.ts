@@ -5,8 +5,8 @@ vi.mock('../../src/main', () => ({
   default: class {},
 }));
 
-// 绝对路径模式走 fs 模块（readFileSync/writeFileSync/existsSync/mkdirSync）
-vi.mock('fs', () => {
+// Mock the fsUtils module (absolute path mode uses these functions)
+vi.mock('../../src/utils/fsUtils', () => {
   const mod = {
     existsSync: vi.fn(() => false),
     readFileSync: vi.fn(() => ''),
@@ -22,7 +22,7 @@ vi.mock('path', () => {
   return { ...mod, default: mod };
 });
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from '../../src/utils/fsUtils';
 import { App, Vault, TFile } from 'obsidian';
 import { DataConfigService } from '../../src/services/DataConfigService';
 

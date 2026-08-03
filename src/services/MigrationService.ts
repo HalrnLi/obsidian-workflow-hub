@@ -1,8 +1,8 @@
-import { existsSync, readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, copyFileSync } from 'fs';
 import { join, isAbsolute } from 'path';
 import { normalizePath } from 'obsidian';
 import AppVersionManagerPlugin from '../main';
 import { Todo, TodoStatus, TodoPriority, ProjectInfoItem } from '../types';
+import { existsSync, readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, copyFileSync } from '../utils/fsUtils';
 import { parseFrontmatter, createFrontmatter, parseProgressHistory } from '../utils/frontmatter';
 import { generateId, sanitizeFileName } from '../utils/idUtils';
 import { nowISO, toISO } from '../utils/dateUtils';

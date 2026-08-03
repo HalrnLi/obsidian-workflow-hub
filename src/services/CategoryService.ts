@@ -1,4 +1,3 @@
-import { existsSync, readFileSync, writeFileSync, unlinkSync, readdirSync, statSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { normalizePath, TFile } from 'obsidian';
 import AppVersionManagerPlugin from '../main';
@@ -7,6 +6,7 @@ import { parseFrontmatter, createFrontmatter, parseNumericField } from '../utils
 import { generateId, sanitizeFileName } from '../utils/idUtils';
 import { nowISO } from '../utils/dateUtils';
 
+import { existsSync, readFileSync, writeFileSync, unlinkSync, readdirSync, statSync, mkdirSync } from '../utils/fsUtils';
 /** 首次启动初始化的默认分类 */
 const DEFAULT_CATEGORIES: { name: string; sortOrder: number; color: string }[] = [
   { name: '工作', sortOrder: 0, color: '#ef4444' },

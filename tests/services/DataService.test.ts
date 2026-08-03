@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // Mock fs module (hoisted by vitest)
-vi.mock('fs', () => {
+vi.mock('../../src/utils/fsUtils', () => {
   const mockStat = () => ({
     isFile: () => true,
     ctime: new Date('2026-01-01'),
@@ -18,6 +18,10 @@ vi.mock('fs', () => {
     readdirSync: vi.fn(() => []),
     statSync: vi.fn(mockStat),
     renameSync: vi.fn(),
+    readFileAsync: vi.fn(async () => '---\nid: mock-id\nname: mock\n---\n'),
+    writeFileAsync: vi.fn(async () => {}),
+    unlinkAsync: vi.fn(async () => {}),
+    renameAsync: vi.fn(async () => {}),
     promises: {
       readFile: vi.fn(async () => '---\nid: mock-id\nname: mock\n---\n'),
       writeFile: vi.fn(async () => {}),
@@ -51,7 +55,7 @@ vi.mock('path', () => {
   return { ...path, default: path };
 });
 
-import { existsSync, readFileSync, writeFileSync, readdirSync, statSync, promises as fsPromises } from 'fs';
+import { existsSync, readFileSync, writeFileSync, readdirSync, statSync, readFileAsync, writeFileAsync, renameAsync, unlinkAsync } from '../../src/utils/fsUtils';
 import { App, Vault, TFile, TFolder } from 'obsidian';
 import { DataService } from '../../src/services/DataService';
 import { ConcurrencyConflictError } from '../../src/types';
@@ -973,7 +977,7 @@ describe('DataService (absolute path)', () => {
         ctime: new Date('2026-01-01'),
         mtime: new Date('2026-01-15'),
       });
-      (fsPromises.readFile as any).mockResolvedValue(
+      (readFileAsync as any).mockResolvedValue(
         '---\nid: app-1\nname: MyApp\ncreatedAt: "2026-01-01"\nupdatedAt: "2026-01-15"\nversion: 1\n---\n',
       );
 
@@ -992,7 +996,7 @@ describe('DataService (absolute path)', () => {
       const app = await service.createApp('FsApp');
       expect(app.name).toBe('FsApp');
       // For absolute path, write goes through promises.writeFile, not writeFileSync
-      expect(fsPromises.writeFile).toHaveBeenCalled();
+      expect(writeFileAsync).toHaveBeenCalled();
     });
   });
 });
